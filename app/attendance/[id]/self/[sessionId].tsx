@@ -102,17 +102,12 @@ export default function SelfAttendanceSessionScreen() {
         if (recordsError) throw recordsError;
       }
 
-      // Update session status to completed
-      const { error: sessionError } = await supabase
-        .from('attendance_sessions')
-        .update({ status: 'completed' })
-        .eq('id', sessionId);
-
-      if (sessionError) throw sessionError;
-
-      router.replace(`/attendance/${id}`);
+      // Don't update session status to completed yet
+      // Navigate to summary page instead
+      router.push(`/attendance/${id}/summary?sessionId=${sessionId}`);
     } catch (error) {
       setError(error.message);
+      Alert.alert('Error', error.message);
     } finally {
       setSubmitting(false);
     }

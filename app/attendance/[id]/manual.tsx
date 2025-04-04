@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Check, X, Search, ArrowLeft } from 'lucide-react-native';
+import { Check, X } from 'lucide-react-native';
 
 interface Student {
   id: string;
@@ -14,53 +14,13 @@ interface Student {
 export default function ManualAttendanceScreen() {
   const { id } = useLocalSearchParams();
   const [students, setStudents] = useState<Student[]>([]);
-  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [stats, setStats] = useState({
-    total: 0,
-    present: 0,
-    absent: 0,
-    unmarked: 0
-  });
 
   useEffect(() => {
     fetchStudents();
   }, [id]);
-
-  useEffect(() => {
-    // Filter students based on search query
-    if (searchQuery.trim() === '') {
-      setFilteredStudents(students);
-    } else {
-      const query = searchQuery.toLowerCase();
-      setFilteredStudents(
-        students.filter(
-          student => 
-            student.name.toLowerCase().includes(query) || 
-            student.roll_number.toLowerCase().includes(query)
-        )
-      );
-    }
-    
-    // Update stats
-    updateStats();
-  }, [students, searchQuery]);
-
-  const updateStats = () => {
-    const present = students.filter(s => s.attendance_status === 'present').length;
-    const absent = students.filter(s => s.attendance_status === 'absent').length;
-    const total = students.length;
-    
-    setStats({
-      total,
-      present,
-      absent,
-      unmarked: total - present - absent
-    });
-  };
 
   const fetchStudents = async () => {
     try {
@@ -82,12 +42,11 @@ export default function ManualAttendanceScreen() {
       const formattedStudents = members.map(member => ({
         id: member.profiles.id,
         name: member.profiles.name,
-        roll_number: member.profiles.roll_number || 'N/A',
+        roll_number: member.profiles.roll_number,
         attendance_status: null,
       }));
 
       setStudents(formattedStudents);
-      setFilteredStudents(formattedStudents);
     } catch (error) {
       setError(error.message);
     } finally {
@@ -105,43 +64,7 @@ export default function ManualAttendanceScreen() {
     );
   };
 
-  const markAllPresent = () => {
-    Alert.alert(
-      'Mark All Present',
-      'Are you sure you want to mark all students as present?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Confirm', 
-          onPress: () => {
-            setStudents(current =>
-              current.map(student => ({ ...student, attendance_status: 'present' }))
-            );
-          }
-        },
-      ]
-    );
-  };
-
   const handleSubmit = async () => {
-    // Check if all students have been marked
-    const unmarkedCount = students.filter(s => s.attendance_status === null).length;
-    
-    if (unmarkedCount > 0) {
-      Alert.alert(
-        'Unmarked Students',
-        `${unmarkedCount} students haven't been marked. Do you want to continue?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Continue', onPress: submitAttendance }
-        ]
-      );
-    } else {
-      submitAttendance();
-    }
-  };
-
-  const submitAttendance = async () => {
     try {
       setSubmitting(true);
       
@@ -151,13 +74,13 @@ export default function ManualAttendanceScreen() {
         .insert({
           group_id: id,
           type: 'manual',
-          status: 'completed',
+          status: 'active', // Changed from 'completed' to 'active'
         })
         .select()
         .single();
-
+  
       if (sessionError) throw sessionError;
-
+  
       // Get marker's profile ID
       const { data: { user } } = await supabase.auth.getUser();
       const { data: profile } = await supabase
@@ -165,7 +88,7 @@ export default function ManualAttendanceScreen() {
         .select('id')
         .eq('user_id', user?.id)
         .single();
-
+  
       // Create attendance records
       const records = students
         .filter(student => student.attendance_status)
@@ -175,18 +98,15 @@ export default function ManualAttendanceScreen() {
           status: student.attendance_status,
           marked_by: profile.id,
         }));
-
+  
       const { error: recordsError } = await supabase
         .from('attendance_records')
         .insert(records);
-
+  
       if (recordsError) throw recordsError;
-
-      Alert.alert(
-        'Success',
-        'Attendance has been recorded successfully',
-        [{ text: 'OK', onPress: () => router.replace(`/attendance/${id}`) }]
-      );
+  
+      // Navigate to summary page instead of going back to attendance list
+      router.push(`/attendance/${id}/summary?sessionId=${session.id}`);
     } catch (error) {
       setError(error.message);
       Alert.alert('Error', error.message);
@@ -216,7 +136,7 @@ export default function ManualAttendanceScreen() {
           style={[
             styles.actionButton,
             styles.absentButton,
-            item.attendance_status === 'absent' && styles.activeAbsentButton,
+            item.attendance_status === 'absent' && styles.activeButton,
           ]}
           onPress={() => markAttendance(item.id, 'absent')}
         >
@@ -237,63 +157,13 @@ export default function ManualAttendanceScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <ArrowLeft size={24} color="#1F2937" />
-        </TouchableOpacity>
         <Text style={styles.title}>Manual Attendance</Text>
       </View>
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.error}>{error}</Text>
-        </View>
-      )}
-
-      <View style={styles.searchContainer}>
-        <View style={styles.searchInputContainer}>
-          <Search size={20} color="#6B7280" style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name or roll number"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-      </View>
-
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{stats.total}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: '#059669' }]}>{stats.present}</Text>
-          <Text style={styles.statLabel}>Present</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: '#DC2626' }]}>{stats.absent}</Text>
-          <Text style={styles.statLabel}>Absent</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: '#9CA3AF' }]}>{stats.unmarked}</Text>
-          <Text style={styles.statLabel}>Unmarked</Text>
-        </View>
-      </View>
-
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity 
-          style={styles.markAllButton}
-          onPress={markAllPresent}
-        >
-          <Text style={styles.markAllButtonText}>Mark All Present</Text>
-        </TouchableOpacity>
-      </View>
+      {error && <Text style={styles.error}>{error}</Text>}
 
       <FlatList
-        data={filteredStudents}
+        data={students}
         renderItem={renderStudent}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
@@ -304,7 +174,7 @@ export default function ManualAttendanceScreen() {
         <TouchableOpacity
           style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || students.some(s => s.attendance_status === null)}
         >
           <Text style={styles.submitButtonText}>
             {submitting ? 'Submitting...' : 'Submit Attendance'}
@@ -331,95 +201,20 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backButton: {
-    marginRight: 16,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
   },
-  errorContainer: {
-    backgroundColor: '#FEE2E2',
-    padding: 12,
-    margin: 16,
-    borderRadius: 8,
-  },
   error: {
     color: '#DC2626',
-    fontSize: 14,
-  },
-  searchContainer: {
-    padding: 16,
-    paddingBottom: 8,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    height: 44,
-    fontSize: 16,
-    color: '#1F2937',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    margin: 16,
-    marginTop: 8,
-    borderRadius: 8,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  actionsContainer: {
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  markAllButton: {
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  markAllButtonText: {
-    color: '#1E40AF',
-    fontWeight: '600',
+    padding: 20,
+    textAlign: 'center',
   },
   list: {
     padding: 16,
-    paddingTop: 8,
+    gap: 12,
   },
   studentCard: {
     backgroundColor: '#FFFFFF',
@@ -436,7 +231,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-    marginBottom: 12,
   },
   studentInfo: {
     flex: 1,
@@ -472,10 +266,6 @@ const styles = StyleSheet.create({
   activeButton: {
     backgroundColor: '#059669',
     borderColor: '#059669',
-  },
-  activeAbsentButton: {
-    backgroundColor: '#DC2626',
-    borderColor: '#DC2626',
   },
   footer: {
     padding: 16,
