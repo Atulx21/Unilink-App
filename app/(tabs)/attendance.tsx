@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Users, Plus, History, RefreshCw } from 'lucide-react-native';
+import { Users, Plus, History, RefreshCw, UserPlus } from 'lucide-react-native';
 
 // Define types if not already in @/types
 interface Group {
@@ -146,13 +146,22 @@ export default function AttendanceScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Attendance</Text>
-        {userRole === 'teacher' && activeTab === 'groups' && (
-          <TouchableOpacity
-            style={styles.createButton}
-            onPress={() => router.push('/attendance/create')}
-          >
-            <Plus size={24} color="#FFFFFF" />
-          </TouchableOpacity>
+        {activeTab === 'groups' && (
+          userRole === 'teacher' ? (
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={() => router.push('/attendance/create')}
+            >
+              <Plus size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.joinButton}
+              onPress={() => router.push('/attendance/join')}
+            >
+              <UserPlus size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          )
         )}
       </View>
 
@@ -187,12 +196,19 @@ export default function AttendanceScreen() {
           <View style={styles.emptyContainer}>
             <Users size={48} color="#9CA3AF" />
             <Text style={styles.emptyText}>No groups found</Text>
-            {userRole === 'teacher' && (
+            {userRole === 'teacher' ? (
               <TouchableOpacity
                 style={styles.createFirstButton}
                 onPress={() => router.push('/attendance/create')}
               >
                 <Text style={styles.createFirstButtonText}>Create your first group</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.joinFirstButton}
+                onPress={() => router.push('/attendance/join')}
+              >
+                <Text style={styles.joinFirstButtonText}>Join a group with code</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -413,6 +429,39 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  trackingGroupName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  trackingAttendance: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  joinButton: {
+    backgroundColor: '#10B981', // Green color for join button
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+  },
+  
+  joinFirstButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    elevation: 2,
+  },
+  
+  joinFirstButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   trackingGroupName: {
     fontSize: 18,

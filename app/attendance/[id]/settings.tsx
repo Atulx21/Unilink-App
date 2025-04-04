@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Switch, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Switch, TouchableOpacity, Alert, ScrollView, Share, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Settings, Clock, Users, TriangleAlert as AlertTriangle } from 'lucide-react-native';
+import { Settings, Clock, Users, TriangleAlert as AlertTriangle, Copy, Share as ShareIcon, Info } from 'lucide-react-native';
 
 interface GroupSettings {
   id: string;
@@ -10,6 +10,7 @@ interface GroupSettings {
   allow_self_attendance: boolean;
   attendance_window: number; // in minutes
   penalty_threshold: number;
+  join_code?: string;
 }
 
 export default function AttendanceSettingsScreen() {
@@ -20,6 +21,7 @@ export default function AttendanceSettingsScreen() {
     allow_self_attendance: true,
     attendance_window: 15,
     penalty_threshold: 3,
+    join_code: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -31,6 +33,7 @@ export default function AttendanceSettingsScreen() {
 
   const fetchSettings = async () => {
     try {
+      setLoading(true);
       const { data: group, error: groupError } = await supabase
         .from('groups')
         .select('*')
@@ -38,7 +41,13 @@ export default function AttendanceSettingsScreen() {
         .single();
 
       if (groupError) throw groupError;
-      setSettings(group);
+      
+      // Ensure numeric values are properly parsed
+      setSettings({
+        ...group,
+        attendance_window: parseInt(group.attendance_window) || 15,
+        penalty_threshold: parseInt(group.penalty_threshold) || 3,
+      });
     } catch (error) {
       setError(error.message);
     } finally {
@@ -46,9 +55,36 @@ export default function AttendanceSettingsScreen() {
     }
   };
 
+  // Function to update attendance window
+  const updateAttendanceWindow = (increment) => {
+    const newValue = settings.attendance_window + increment;
+    // Ensure the value is at least 5
+    if (newValue >= 5) {
+      setSettings({...settings, attendance_window: newValue});
+    }
+  };
+
+  // Function to update penalty threshold
+  const updatePenaltyThreshold = (increment) => {
+    const newValue = settings.penalty_threshold + increment;
+    // Ensure the value is at least 1
+    if (newValue >= 1) {
+      setSettings({...settings, penalty_threshold: newValue});
+    }
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
+      
+      // Validate settings before saving
+      if (settings.attendance_window < 5) {
+        throw new Error('Attendance window must be at least 5 minutes');
+      }
+      
+      if (settings.penalty_threshold < 1) {
+        throw new Error('Penalty threshold must be at least 1');
+      }
       
       const { error: updateError } = await supabase
         .from('groups')
@@ -73,6 +109,35 @@ export default function AttendanceSettingsScreen() {
     }
   };
 
+  // Function to share join code
+  const shareJoinCode = async () => {
+    try {
+      await Share.share({
+        message: `Join my class group with code: ${settings.join_code}`,
+        title: `Join ${settings.name}`,
+      });
+    } catch (error) {
+      console.error('Error sharing join code:', error);
+    }
+  };
+
+  // Function to copy join code to clipboard
+  const copyJoinCode = () => {
+    Alert.alert(
+      'Join Code',
+      `${settings.join_code}`,
+      [{ text: 'OK' }]
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1E40AF" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
@@ -81,96 +146,143 @@ export default function AttendanceSettingsScreen() {
       </View>
 
       {error && (
-        <View style={styles.errorBanner}>
+        <View style={styles.errorContainer}>
           <AlertTriangle size={20} color="#DC2626" />
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
 
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Settings size={20} color="#1F2937" />
-          <Text style={styles.sectionTitle}>General Settings</Text>
+      {/* Join Code Section */}
+      {settings.join_code && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Join Code</Text>
+          <View style={styles.joinCodeContainer}>
+            <Text style={styles.joinCode}>{settings.join_code}</Text>
+            <View style={styles.joinCodeActions}>
+              <TouchableOpacity onPress={copyJoinCode} style={styles.iconButton}>
+                <Copy size={20} color="#1E40AF" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={shareJoinCode} style={styles.iconButton}>
+                <ShareIcon size={20} color="#1E40AF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          <Text style={styles.joinCodeHelp}>
+            Share this code with students to let them join your group
+          </Text>
         </View>
+      )}
 
-        <View style={styles.setting}>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Self Attendance</Text>
+        <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>Allow Self Attendance</Text>
+            <Text style={styles.settingLabel}>Allow Self Attendance</Text>
             <Text style={styles.settingDescription}>
-              Let students mark their own attendance during active sessions
+              Let students mark their own attendance
             </Text>
           </View>
           <Switch
             value={settings.allow_self_attendance}
             onValueChange={(value) => 
-              setSettings(prev => ({ ...prev, allow_self_attendance: value }))
+              setSettings({...settings, allow_self_attendance: value})
             }
+            trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+            thumbColor={settings.allow_self_attendance ? '#1E40AF' : '#F3F4F6'}
           />
         </View>
       </View>
 
+      {/* Enhanced Time Settings Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
+        <View style={styles.sectionTitleContainer}>
           <Clock size={20} color="#1F2937" />
           <Text style={styles.sectionTitle}>Time Settings</Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.setting}
-          onPress={() => {
-            Alert.alert(
-              'Attendance Window',
-              'How many minutes should students have to mark their attendance?',
-              [
-                { text: '5 minutes', onPress: () => setSettings(prev => ({ ...prev, attendance_window: 5 })) },
-                { text: '10 minutes', onPress: () => setSettings(prev => ({ ...prev, attendance_window: 10 })) },
-                { text: '15 minutes', onPress: () => setSettings(prev => ({ ...prev, attendance_window: 15 })) },
-                { text: '30 minutes', onPress: () => setSettings(prev => ({ ...prev, attendance_window: 30 })) },
-                { text: 'Cancel', style: 'cancel' },
-              ]
-            );
-          }}
-        >
+        
+        <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>Attendance Window</Text>
+            <Text style={styles.settingLabel}>Attendance Window</Text>
             <Text style={styles.settingDescription}>
-              Time allowed for students to mark attendance
+              Time window for marking attendance (minutes)
             </Text>
           </View>
-          <Text style={styles.settingValue}>{settings.attendance_window} min</Text>
-        </TouchableOpacity>
+          <View style={styles.counterContainer}>
+            <TouchableOpacity
+              style={[
+                styles.counterButton, 
+                settings.attendance_window <= 5 && styles.counterButtonDisabled
+              ]}
+              onPress={() => updateAttendanceWindow(-5)}
+              disabled={settings.attendance_window <= 5}
+            >
+              <Text style={[
+                styles.counterButtonText,
+                settings.attendance_window <= 5 && styles.counterButtonTextDisabled
+              ]}>-</Text>
+            </TouchableOpacity>
+            <Text style={styles.counterValue}>{settings.attendance_window}</Text>
+            <TouchableOpacity
+              style={styles.counterButton}
+              onPress={() => updateAttendanceWindow(5)}
+            >
+              <Text style={styles.counterButtonText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        <View style={styles.helpTextContainer}>
+          <Info size={16} color="#6B7280" />
+          <Text style={styles.helpText}>
+            Students can only mark attendance within this time window after a session starts
+          </Text>
+        </View>
       </View>
 
+      {/* Enhanced Penalties Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Users size={20} color="#1F2937" />
-          <Text style={styles.sectionTitle}>Penalty Settings</Text>
+        <View style={styles.sectionTitleContainer}>
+          <AlertTriangle size={20} color="#1F2937" />
+          <Text style={styles.sectionTitle}>Penalties</Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.setting}
-          onPress={() => {
-            Alert.alert(
-              'Penalty Threshold',
-              'After how many absences should a penalty be applied?',
-              [
-                { text: '2 absences', onPress: () => setSettings(prev => ({ ...prev, penalty_threshold: 2 })) },
-                { text: '3 absences', onPress: () => setSettings(prev => ({ ...prev, penalty_threshold: 3 })) },
-                { text: '4 absences', onPress: () => setSettings(prev => ({ ...prev, penalty_threshold: 4 })) },
-                { text: '5 absences', onPress: () => setSettings(prev => ({ ...prev, penalty_threshold: 5 })) },
-                { text: 'Cancel', style: 'cancel' },
-              ]
-            );
-          }}
-        >
+        
+        <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>Penalty Threshold</Text>
+            <Text style={styles.settingLabel}>Penalty Threshold</Text>
             <Text style={styles.settingDescription}>
-              Number of absences before applying penalties
+              Number of absences before penalty
             </Text>
           </View>
-          <Text style={styles.settingValue}>{settings.penalty_threshold}</Text>
-        </TouchableOpacity>
+          <View style={styles.counterContainer}>
+            <TouchableOpacity
+              style={[
+                styles.counterButton,
+                settings.penalty_threshold <= 1 && styles.counterButtonDisabled
+              ]}
+              onPress={() => updatePenaltyThreshold(-1)}
+              disabled={settings.penalty_threshold <= 1}
+            >
+              <Text style={[
+                styles.counterButtonText,
+                settings.penalty_threshold <= 1 && styles.counterButtonTextDisabled
+              ]}>-</Text>
+            </TouchableOpacity>
+            <Text style={styles.counterValue}>{settings.penalty_threshold}</Text>
+            <TouchableOpacity
+              style={styles.counterButton}
+              onPress={() => updatePenaltyThreshold(1)}
+            >
+              <Text style={styles.counterButtonText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        <View style={styles.helpTextContainer}>
+          <Info size={16} color="#6B7280" />
+          <Text style={styles.helpText}>
+            Students will receive a penalty after this many absences
+          </Text>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -191,6 +303,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F3F4F6',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+  },
   header: {
     backgroundColor: '#FFFFFF',
     padding: 20,
@@ -202,69 +320,107 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 18,
-    color: '#4B5563',
+    fontSize: 16,
+    color: '#6B7280',
+    marginTop: 4,
   },
-  errorBanner: {
+  errorContainer: {
+    backgroundColor: '#FEE2E2',
+    padding: 16,
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    padding: 16,
-    marginTop: 1,
-    gap: 8,
   },
   errorText: {
-    flex: 1,
     color: '#DC2626',
-    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
   section: {
     backgroundColor: '#FFFFFF',
-    marginTop: 16,
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  sectionHeader: {
+  sectionTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    gap: 8,
+    marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#1F2937',
+    marginBottom: 16,
+    marginLeft: 8,
   },
-  setting: {
+  settingRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#F3F4F6',
   },
   settingInfo: {
     flex: 1,
+    marginRight: 16,
   },
-  settingTitle: {
+  settingLabel: {
     fontSize: 16,
-    color: '#1F2937',
-    marginBottom: 4,
+    fontWeight: '500',
+    color: '#374151',
   },
   settingDescription: {
     fontSize: 14,
     color: '#6B7280',
+    marginTop: 4,
   },
-  settingValue: {
-    fontSize: 16,
+  counterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  counterButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  counterButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  counterButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#1E40AF',
-    fontWeight: '500',
+  },
+  counterButtonTextDisabled: {
+    color: '#9CA3AF',
+  },
+  counterValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginHorizontal: 12,
+    minWidth: 24,
+    textAlign: 'center',
   },
   saveButton: {
     backgroundColor: '#1E40AF',
-    margin: 16,
+    marginHorizontal: 20,
+    marginVertical: 30,
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',
@@ -276,5 +432,44 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  joinCodeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 12,
+  },
+  joinCode: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    letterSpacing: 2,
+  },
+  joinCodeActions: {
+    flexDirection: 'row',
+  },
+  iconButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  joinCodeHelp: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  helpTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 4,
+  },
+  helpText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginLeft: 8,
+    flex: 1,
   },
 });

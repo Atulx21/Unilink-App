@@ -2,35 +2,23 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
-  StyleSheet, 
   TextInput, 
   TouchableOpacity, 
+  StyleSheet, 
   ScrollView,
   Animated,
-  Dimensions,
   Modal
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Check, X } from 'lucide-react-native';
+import { Users, Check } from 'lucide-react-native';
 
-
-function generateGroupCode() {
-  // Generate a 6-character alphanumeric code
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-export default function CreateGroupScreen() {
+export default function JoinGroupScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [groupName, setGroupName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
-  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
+  const [joinedGroupId, setJoinedGroupId] = useState<string | null>(null);
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -62,7 +50,7 @@ export default function CreateGroupScreen() {
     }
   }, [showSuccess]);
 
-  const handleCreate = async () => {
+  const handleJoin = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -73,54 +61,48 @@ export default function CreateGroupScreen() {
       // Get user profile
       const { data: profile } = await supabase
         .from('profiles')
-        .select('id')
+        .select('id, role')
         .eq('user_id', user.id)
         .single();
 
       if (!profile) throw new Error('Profile not found');
 
-      // Generate a unique group code
-      let groupCode;
-      let isCodeUnique = false;
-      while (!isCodeUnique) {
-        groupCode = generateGroupCode();
-        const { data: existingGroup } = await supabase
-          .from('groups')
-          .select('id')
-          .eq('join_code', groupCode)
-          .single();
-        
-        if (!existingGroup) {
-          isCodeUnique = true;
-        }
-      }
-
-      // Create group with join code
+      // Find group by join code
       const { data: group, error: groupError } = await supabase
         .from('groups')
-        .insert({
-          name: groupName,
-          owner_id: profile.id,
-          join_code: groupCode,
-        })
-        .select()
+        .select('id')
+        .eq('join_code', joinCode.toUpperCase())
         .single();
 
-      if (groupError) throw groupError;
+      if (groupError || !group) {
+        throw new Error('Invalid join code');
+      }
 
-      // Add owner as a member
+      // Check if already a member
+      const { data: existingMember } = await supabase
+        .from('group_members')
+        .select('id')
+        .eq('group_id', group.id)
+        .eq('member_id', profile.id)
+        .single();
+
+      if (existingMember) {
+        throw new Error('You are already a member of this group');
+      }
+
+      // Add user as a member
       const { error: memberError } = await supabase
         .from('group_members')
         .insert({
           group_id: group.id,
           member_id: profile.id,
-          role: 'teacher',
+          role: profile.role,
         });
 
       if (memberError) throw memberError;
 
       // Show success popup instead of immediately navigating
-      setCreatedGroupId(group.id);
+      setJoinedGroupId(group.id);
       setShowSuccess(true);
     } catch (error) {
       setError(error.message);
@@ -130,40 +112,44 @@ export default function CreateGroupScreen() {
   };
 
   const handleContinue = () => {
-    if (createdGroupId) {
-      router.replace(`/attendance/${createdGroupId}`);
+    if (joinedGroupId) {
+      router.replace(`/attendance/${joinedGroupId}`);
     }
   };
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Create Group</Text>
+        <Text style={styles.title}>Join Group</Text>
       </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      <View style={styles.content}>
+        <Users size={64} color="#1E40AF" style={styles.icon} />
+        
+        <Text style={styles.heading}>Enter Group Code</Text>
+        <Text style={styles.description}>
+          Enter the 6-character code provided by your teacher to join the group
+        </Text>
 
-      <View style={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Group Name</Text>
-          <TextInput
-            style={styles.input}
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Enter group name"
-          />
-          <Text style={styles.hint}>
-            A unique join code will be generated automatically when you create the group.
-          </Text>
-        </View>
+        {error && <Text style={styles.error}>{error}</Text>}
+
+        <TextInput
+          style={styles.input}
+          value={joinCode}
+          onChangeText={(text) => setJoinCode(text.toUpperCase())}
+          placeholder="Enter 6-character code"
+          placeholderTextColor="#9CA3AF"
+          maxLength={6}
+          autoCapitalize="characters"
+        />
 
         <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleCreate}
-          disabled={loading || !groupName.trim()}
+          style={[styles.button, (loading || !joinCode.trim() || joinCode.length < 6) && styles.buttonDisabled]}
+          onPress={handleJoin}
+          disabled={loading || !joinCode.trim() || joinCode.length < 6}
         >
           <Text style={styles.buttonText}>
-            {loading ? 'Creating...' : 'Create Group'}
+            {loading ? 'Joining...' : 'Join Group'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -187,9 +173,9 @@ export default function CreateGroupScreen() {
             <View style={styles.successIconContainer}>
               <Check size={32} color="#FFFFFF" />
             </View>
-            <Text style={styles.successTitle}>Group Created!</Text>
+            <Text style={styles.successTitle}>Joined Successfully!</Text>
             <Text style={styles.successMessage}>
-              Your group has been created successfully.
+              You have joined the group successfully.
             </Text>
           </Animated.View>
         </View>
@@ -215,37 +201,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
   },
-  form: {
+  content: {
     padding: 20,
+    alignItems: 'center',
   },
-  inputGroup: {
+  icon: {
     marginBottom: 20,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
+  heading: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1F2937',
     marginBottom: 8,
+    textAlign: 'center',
+  },
+  description: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
   },
   input: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  hint: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#6B7280',
-    fontStyle: 'italic',
+    padding: 16,
+    fontSize: 20,
+    width: '100%',
+    textAlign: 'center',
+    letterSpacing: 4,
+    marginBottom: 24,
   },
   button: {
     backgroundColor: '#1E40AF',
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',
+    width: '100%',
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -257,7 +250,7 @@ const styles = StyleSheet.create({
   },
   error: {
     color: '#DC2626',
-    padding: 20,
+    marginBottom: 16,
     textAlign: 'center',
   },
   modalOverlay: {
