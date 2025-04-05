@@ -7,11 +7,14 @@ import {
   StyleSheet, 
   ScrollView,
   Animated,
-  Modal
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Users, Check } from 'lucide-react-native';
+import { Users, Check, ArrowLeft } from 'lucide-react-native';
 
 export default function JoinGroupScreen() {
   const [loading, setLoading] = useState(false);
@@ -55,22 +58,27 @@ export default function JoinGroupScreen() {
       setLoading(true);
       setError(null);
 
+      if (!joinCode.trim() || joinCode.length < 6) {
+        throw new Error('Please enter a valid 6-character code');
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
 
       // Get user profile
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('id, role')
         .eq('user_id', user.id)
         .single();
 
+      if (profileError) throw new Error('Could not fetch your profile');
       if (!profile) throw new Error('Profile not found');
 
       // Find group by join code
       const { data: group, error: groupError } = await supabase
         .from('groups')
-        .select('id')
+        .select('id, name')
         .eq('join_code', joinCode.toUpperCase())
         .single();
 
@@ -79,14 +87,14 @@ export default function JoinGroupScreen() {
       }
 
       // Check if already a member
-      const { data: existingMember } = await supabase
+      const { data: existingMember, error: memberCheckError } = await supabase
         .from('group_members')
         .select('id')
         .eq('group_id', group.id)
         .eq('member_id', profile.id)
         .single();
 
-      if (existingMember) {
+      if (!memberCheckError && existingMember) {
         throw new Error('You are already a member of this group');
       }
 
@@ -99,7 +107,7 @@ export default function JoinGroupScreen() {
           role: profile.role,
         });
 
-      if (memberError) throw memberError;
+      if (memberError) throw new Error('Failed to join the group');
 
       // Show success popup instead of immediately navigating
       setJoinedGroupId(group.id);
@@ -118,41 +126,56 @@ export default function JoinGroupScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Join Group</Text>
-      </View>
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidingView}
+      >
+        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <ArrowLeft size={24} color="#1F2937" />
+            </TouchableOpacity>
+            <Text style={styles.title}>Join Group</Text>
+            <View style={styles.placeholder} />
+          </View>
 
-      <View style={styles.content}>
-        <Users size={64} color="#1E40AF" style={styles.icon} />
-        
-        <Text style={styles.heading}>Enter Group Code</Text>
-        <Text style={styles.description}>
-          Enter the 6-character code provided by your teacher to join the group
-        </Text>
+          <View style={styles.content}>
+            <Users size={64} color="#1E40AF" style={styles.icon} />
+            
+            <Text style={styles.heading}>Enter Group Code</Text>
+            <Text style={styles.description}>
+              Enter the 6-character code provided by your teacher to join the group
+            </Text>
 
-        {error && <Text style={styles.error}>{error}</Text>}
+            {error && <Text style={styles.error}>{error}</Text>}
 
-        <TextInput
-          style={styles.input}
-          value={joinCode}
-          onChangeText={(text) => setJoinCode(text.toUpperCase())}
-          placeholder="Enter 6-character code"
-          placeholderTextColor="#9CA3AF"
-          maxLength={6}
-          autoCapitalize="characters"
-        />
+            <TextInput
+              style={styles.input}
+              value={joinCode}
+              onChangeText={(text) => setJoinCode(text.toUpperCase())}
+              placeholder="Enter 6-character code"
+              placeholderTextColor="#9CA3AF"
+              maxLength={6}
+              autoCapitalize="characters"
+              keyboardType="default"
+            />
 
-        <TouchableOpacity
-          style={[styles.button, (loading || !joinCode.trim() || joinCode.length < 6) && styles.buttonDisabled]}
-          onPress={handleJoin}
-          disabled={loading || !joinCode.trim() || joinCode.length < 6}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? 'Joining...' : 'Join Group'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+            <TouchableOpacity
+              style={[styles.button, (loading || !joinCode.trim() || joinCode.length < 6) && styles.buttonDisabled]}
+              onPress={handleJoin}
+              disabled={loading || !joinCode.trim() || joinCode.length < 6}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Joining...' : 'Join Group'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Success Modal */}
       <Modal
@@ -180,46 +203,69 @@ export default function JoinGroupScreen() {
           </Animated.View>
         </View>
       </Modal>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     padding: 20,
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    elevation: 2,
+  },
+  backButton: {
+    padding: 8,
+  },
+  placeholder: {
+    width: 40,
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#1F2937',
   },
   content: {
-    padding: 20,
+    padding: 24,
     alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
   },
   icon: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   heading: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: 12,
     textAlign: 'center',
   },
   description: {
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 32,
+    lineHeight: 22,
   },
   input: {
     backgroundColor: '#FFFFFF',
@@ -230,8 +276,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     width: '100%',
     textAlign: 'center',
-    letterSpacing: 4,
-    marginBottom: 24,
+    letterSpacing: 8,
+    marginBottom: 32,
+    color: '#1F2937',
+    elevation: 1,
   },
   button: {
     backgroundColor: '#1E40AF',
@@ -239,9 +287,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     width: '100%',
+    elevation: 2,
   },
   buttonDisabled: {
-    opacity: 0.7,
+    backgroundColor: '#93C5FD',
+    opacity: 0.8,
   },
   buttonText: {
     color: '#FFFFFF',
@@ -252,6 +302,11 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     marginBottom: 16,
     textAlign: 'center',
+    backgroundColor: '#FEE2E2',
+    padding: 12,
+    borderRadius: 8,
+    width: '100%',
+    fontSize: 14,
   },
   modalOverlay: {
     flex: 1,
@@ -279,6 +334,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    elevation: 2,
   },
   successTitle: {
     fontSize: 20,
@@ -290,5 +346,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
+    lineHeight: 22,
   },
 });

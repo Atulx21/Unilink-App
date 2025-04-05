@@ -165,8 +165,8 @@ export default function SelfAttendanceSummaryScreen() {
   const renderStudent = ({ item }: { item: Student }) => (
     <View style={styles.studentCard}>
       <View style={styles.studentInfo}>
-        <Text style={styles.studentName}>{item.name}</Text>
-        <Text style={styles.rollNumber}>Roll No: {item.roll_number}</Text>
+        <Text style={styles.studentName}>{item.profile?.name || item.name}</Text>
+        <Text style={styles.rollNumber}>Roll No: {item.profile?.roll_number || item.roll_number}</Text>
       </View>
       <View style={styles.statusIndicator}>
         {item.attendance_status === 'present' && (
@@ -179,6 +179,7 @@ export default function SelfAttendanceSummaryScreen() {
               style={styles.penaltyButton}
               onPress={() => markAsPenalty(item.id)}
             >
+              <AlertTriangle size={14} color="#D97706" />
               <Text style={styles.penaltyButtonText}>Mark Penalty</Text>
             </TouchableOpacity>
           </View>
@@ -568,11 +569,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#D97706',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
   },
   penaltyButtonText: {
     color: '#D97706',
     fontSize: 12,
     fontWeight: '600',
+    marginLeft: 4,
   },
   emptyState: {
     flex: 1,

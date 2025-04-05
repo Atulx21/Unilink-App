@@ -20,18 +20,21 @@ export default function SelfAttendanceSessionScreen() {
 
   useEffect(() => {
     fetchStudents();
+    
+    // Set up real-time subscription to attendance_records table
     const subscription = supabase
       .channel('attendance_records')
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
         schema: 'public',
         table: 'attendance_records',
         filter: `session_id=eq.${sessionId}`,
       }, () => {
+        console.log('Attendance record changed, refreshing data...');
         fetchStudents();
       })
       .subscribe();
-
+  
     return () => {
       subscription.unsubscribe();
     };
