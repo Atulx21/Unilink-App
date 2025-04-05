@@ -1,23 +1,44 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Dimensions } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  FlatList, 
+  ActivityIndicator, 
+  Dimensions,
+  SafeAreaView,
+  RefreshControl
+} from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Calendar, Users, Clock, ChevronRight, ChevronLeft, Check, X } from 'lucide-react-native';
+import { 
+  Calendar, 
+  Users, 
+  Clock, 
+  ChevronRight, 
+  ChevronLeft, 
+  Check, 
+  X, 
+  AlertTriangle,
+  BarChart3
+} from 'lucide-react-native';
 
 interface AttendanceSession {
   id: string;
   date: string;
   type: 'manual' | 'self';
-  present_count: number;
-  absent_count: number;
-  penalty_count: number;
-  total_students: number;
+  present_count: number | { count: number }[];
+  absent_count: number | { count: number }[];
+  penalty_count: number | { count: number }[];
+  total_students?: number;
 }
 
 export default function AttendanceHistoryScreen() {
   const { id } = useLocalSearchParams();
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalSessions: 0,
@@ -31,14 +52,16 @@ export default function AttendanceHistoryScreen() {
 
   const fetchHistory = async () => {
     try {
-      // Get all sessions with attendance counts
+      setError(null);
+      if (!refreshing) setLoading(true);
+
+      // Get all sessions with attendance counts - using direct count query for accuracy
       const { data: sessions, error: sessionsError } = await supabase
         .from('attendance_sessions')
         .select(`
           id,
           date,
-          type,
-          present_count:attendance_records(count)
+          type
         `)
         .eq('group_id', id)
         .eq('status', 'completed')
@@ -57,30 +80,78 @@ export default function AttendanceHistoryScreen() {
 
       const totalStudents = members?.length || 0;
 
-      // Calculate overall stats
-      const totalSessions = sessions?.length || 0;
-      const averageAttendance = totalSessions > 0
-        ? (sessions?.reduce((acc, session) => {
-            // Handle the case where present_count might be an object with count property
-            const presentCount = typeof session.present_count === 'object' 
-              ? session.present_count[0]?.count || 0 
-              : session.present_count || 0;
-            return acc + presentCount;
-          }, 0) / (totalSessions * totalStudents)) * 100
+      // Fetch attendance records for each session separately for accuracy
+      const processedSessions = [];
+      let totalPresent = 0;
+      let totalAttendanceRecords = 0;
+
+      for (const session of sessions || []) {
+        // Get present count
+        const { data: presentData, error: presentError } = await supabase
+          .from('attendance_records')
+          .select('id', { count: 'exact' })
+          .eq('session_id', session.id)
+          .eq('status', 'present');
+          
+        if (presentError) throw presentError;
+        
+        // Get absent count
+        const { data: absentData, error: absentError } = await supabase
+          .from('attendance_records')
+          .select('id', { count: 'exact' })
+          .eq('session_id', session.id)
+          .eq('status', 'absent');
+          
+        if (absentError) throw absentError;
+        
+        // Get penalty count
+        const { data: penaltyData, error: penaltyError } = await supabase
+          .from('attendance_records')
+          .select('id', { count: 'exact' })
+          .eq('session_id', session.id)
+          .eq('status', 'penalty');
+          
+        if (penaltyError) throw penaltyError;
+        
+        const presentCount = presentData?.length || 0;
+        const absentCount = absentData?.length || 0;
+        const penaltyCount = penaltyData?.length || 0;
+        
+        totalPresent += presentCount;
+        totalAttendanceRecords += (presentCount + absentCount + penaltyCount);
+        
+        processedSessions.push({
+          ...session,
+          present_count: presentCount,
+          absent_count: absentCount,
+          penalty_count: penaltyCount,
+          total_students: totalStudents
+        });
+      }
+      
+      const averageAttendance = totalAttendanceRecords > 0
+        ? (totalPresent / totalAttendanceRecords) * 100
         : 0;
 
       setStats({
-        totalSessions,
+        totalSessions: sessions?.length || 0,
         averageAttendance,
         totalStudents,
       });
 
-      setSessions(sessions || []);
+      setSessions(processedSessions);
     } catch (error) {
+      console.error('Error fetching history:', error);
       setError(error.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchHistory();
   };
 
   const formatDate = (dateString: string) => {
@@ -95,16 +166,29 @@ export default function AttendanceHistoryScreen() {
   };
 
   const renderSession = ({ item }: { item: AttendanceSession }) => {
-    // Handle the case where present_count might be an object with count property
-    const presentCount = typeof item.present_count === 'object' 
-      ? item.present_count[0]?.count || 0 
-      : item.present_count || 0;
+    // Calculate attendance percentage
+    const totalStudents = item.total_students || stats.totalStudents;
+    const presentCount = typeof item.present_count === 'number' 
+      ? item.present_count 
+      : Array.isArray(item.present_count) 
+        ? item.present_count[0]?.count || 0 
+        : 0;
     
-    const attendancePercentage = stats.totalStudents > 0 
-      ? ((presentCount / stats.totalStudents) * 100).toFixed(1) 
+    const absentCount = typeof item.absent_count === 'number' 
+      ? item.absent_count 
+      : Array.isArray(item.absent_count) 
+        ? item.absent_count[0]?.count || 0 
+        : 0;
+    
+    const penaltyCount = typeof item.penalty_count === 'number' 
+      ? item.penalty_count 
+      : Array.isArray(item.penalty_count) 
+        ? item.penalty_count[0]?.count || 0 
+        : 0;
+    
+    const attendancePercentage = totalStudents > 0 
+      ? ((presentCount / totalStudents) * 100).toFixed(1) 
       : '0.0';
-    
-    const absentCount = stats.totalStudents - presentCount;
 
     return (
       <TouchableOpacity
@@ -171,6 +255,22 @@ export default function AttendanceHistoryScreen() {
               <Text style={styles.statValue}>{absentCount}</Text>
               <Text style={styles.statLabel}>Absent</Text>
             </View>
+
+            {penaltyCount > 0 && (
+              <>
+                <View style={styles.statDivider} />
+                
+                <View style={styles.statItem}>
+                  <View style={styles.statIconContainer}>
+                    <View style={[styles.statIconBg, styles.penaltyBg]}>
+                      <AlertTriangle size={14} color="#D97706" />
+                    </View>
+                  </View>
+                  <Text style={styles.statValue}>{penaltyCount}</Text>
+                  <Text style={styles.statLabel}>Penalty</Text>
+                </View>
+              </>
+            )}
           </View>
 
           <View style={styles.cardFooter}>
@@ -182,16 +282,31 @@ export default function AttendanceHistoryScreen() {
     );
   };
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1E40AF" />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.7}
+            >
+              <ChevronLeft size={24} color="#1F2937" />
+            </TouchableOpacity>
+            <Text style={styles.title}>Attendance History</Text>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1E40AF" />
+          <Text style={styles.loadingText}>Loading attendance history...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity 
@@ -207,62 +322,74 @@ export default function AttendanceHistoryScreen() {
 
       {error && (
         <View style={styles.errorContainer}>
+          <AlertTriangle size={20} color="#DC2626" />
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
 
-      <View style={styles.statsCardContainer}>
-        <View style={styles.statsCard}>
-          <View style={styles.overallStatItem}>
-            <View style={[styles.overallStatIconBg, styles.studentsIconBg]}>
-              <Users size={20} color="#1E40AF" />
+      <FlatList
+        data={sessions}
+        renderItem={renderSession}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <>
+            <View style={styles.statsCardContainer}>
+              <View style={styles.statsCard}>
+                <View style={styles.overallStatItem}>
+                  <View style={[styles.overallStatIconBg, styles.studentsIconBg]}>
+                    <Users size={20} color="#1E40AF" />
+                  </View>
+                  <Text style={styles.overallStatValue}>{stats.totalStudents}</Text>
+                  <Text style={styles.overallStatLabel}>Students</Text>
+                </View>
+                
+                <View style={styles.overallStatDivider} />
+                
+                <View style={styles.overallStatItem}>
+                  <View style={[styles.overallStatIconBg, styles.sessionsIconBg]}>
+                    <Calendar size={20} color="#1E40AF" />
+                  </View>
+                  <Text style={styles.overallStatValue}>{stats.totalSessions}</Text>
+                  <Text style={styles.overallStatLabel}>Sessions</Text>
+                </View>
+                
+                <View style={styles.overallStatDivider} />
+                
+                <View style={styles.overallStatItem}>
+                  <View style={[styles.overallStatIconBg, styles.averageIconBg]}>
+                    <BarChart3 size={20} color="#1E40AF" />
+                  </View>
+                  <Text style={styles.overallStatValue}>
+                    {stats.averageAttendance.toFixed(1)}%
+                  </Text>
+                  <Text style={styles.overallStatLabel}>Average</Text>
+                </View>
+              </View>
             </View>
-            <Text style={styles.overallStatValue}>{stats.totalStudents}</Text>
-            <Text style={styles.overallStatLabel}>Students</Text>
-          </View>
-          
-          <View style={styles.overallStatDivider} />
-          
-          <View style={styles.overallStatItem}>
-            <View style={[styles.overallStatIconBg, styles.sessionsIconBg]}>
-              <Calendar size={20} color="#1E40AF" />
-            </View>
-            <Text style={styles.overallStatValue}>{stats.totalSessions}</Text>
-            <Text style={styles.overallStatLabel}>Sessions</Text>
-          </View>
-          
-          <View style={styles.overallStatDivider} />
-          
-          <View style={styles.overallStatItem}>
-            <View style={[styles.overallStatIconBg, styles.averageIconBg]}>
-              <Clock size={20} color="#1E40AF" />
-            </View>
-            <Text style={styles.overallStatValue}>
-              {stats.averageAttendance.toFixed(1)}%
-            </Text>
-            <Text style={styles.overallStatLabel}>Average</Text>
-          </View>
-        </View>
-      </View>
 
-      {sessions.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Calendar size={64} color="#D1D5DB" />
-          <Text style={styles.emptyText}>No attendance sessions found</Text>
-          <Text style={styles.emptySubtext}>
-            Start taking attendance to see history here
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={sessions}
-          renderItem={renderSession}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-    </View>
+            {sessions.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Calendar size={64} color="#D1D5DB" />
+                <Text style={styles.emptyText}>No attendance sessions found</Text>
+                <Text style={styles.emptySubtext}>
+                  Start taking attendance to see history here
+                </Text>
+              </View>
+            )}
+          </>
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#1E40AF"]}
+            tintColor="#1E40AF"
+          />
+        }
+      />
+    </SafeAreaView>
   );
 }
 
@@ -278,6 +405,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#6B7280',
   },
   header: {
     backgroundColor: '#FFFFFF',
@@ -317,10 +449,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: '#DC2626',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   errorText: {
     color: '#B91C1C',
     fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
   statsCardContainer: {
     paddingHorizontal: 16,
@@ -379,6 +515,8 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     paddingTop: 8,
+    paddingBottom: 24,
+    minHeight: '100%',
   },
   sessionCard: {
     backgroundColor: '#FFFFFF',
@@ -467,6 +605,9 @@ const styles = StyleSheet.create({
   absentBg: {
     backgroundColor: '#FEF2F2',
   },
+  penaltyBg: {
+    backgroundColor: '#FEF3C7',
+  },
   statValue: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -498,10 +639,10 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 32,
   },
   emptyText: {
     fontSize: 18,

@@ -1,8 +1,24 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, Dimensions } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Alert, 
+  ActivityIndicator, 
+  SafeAreaView,
+  Image,
+  ScrollView
+} from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Users, CircleAlert as AlertCircle, ChevronLeft, Clock } from 'lucide-react-native';
+import { 
+  Users, 
+  CircleAlert as AlertCircle, 
+  ArrowLeft, 
+  Clock, 
+  CheckCircle2
+} from 'lucide-react-native';
 
 export default function SelfAttendanceScreen() {
   const { id } = useLocalSearchParams();
@@ -21,6 +37,7 @@ export default function SelfAttendanceScreen() {
           group_id: id,
           type: 'self',
           status: 'active',
+          date: new Date().toISOString(),
         })
         .select()
         .single();
@@ -35,65 +52,62 @@ export default function SelfAttendanceScreen() {
     }
   };
 
+  const goBack = () => {
+    router.back();
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1E40AF" />
+        <Text style={styles.loadingText}>Setting up attendance session...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <ChevronLeft size={24} color="#1F2937" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Self Attendance</Text>
-        </View>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={goBack}
+        >
+          <ArrowLeft size={24} color="#1F2937" />
+        </TouchableOpacity>
+        <Text style={styles.title}>Self Attendance</Text>
       </View>
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <AlertCircle size={20} color="#DC2626" />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
+      <ScrollView style={styles.scrollView}>
+        {error && (
+          <View style={styles.errorContainer}>
+            <AlertCircle size={20} color="#DC2626" />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
 
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollViewContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.card}>
+        <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <Users size={40} color="#FFFFFF" />
+            <Users size={64} color="#FFFFFF" />
           </View>
           
           <Text style={styles.heading}>Start Self Attendance</Text>
-          
           <Text style={styles.description}>
             Students will be able to mark their own attendance for this session.
             The session will remain active until you manually end it.
           </Text>
 
-          <View style={styles.infoCard}>
-            <View style={styles.infoIconContainer}>
-              <Clock size={20} color="#1E40AF" />
+          <View style={styles.featuresContainer}>
+            <View style={styles.featureItem}>
+              <CheckCircle2 size={24} color="#059669" style={styles.featureIcon} />
+              <Text style={styles.featureText}>Students mark their own attendance</Text>
             </View>
-            <View style={styles.infoTextContainer}>
-              <Text style={styles.infoTitle}>How it works</Text>
-              <Text style={styles.infoText}>
-                1. Start the session{'\n'}
-                2. Share the session code with students{'\n'}
-                3. Students mark their attendance{'\n'}
-                4. End the session when everyone is done
-              </Text>
+            <View style={styles.featureItem}>
+              <CheckCircle2 size={24} color="#059669" style={styles.featureIcon} />
+              <Text style={styles.featureText}>Real-time attendance tracking</Text>
+            </View>
+            <View style={styles.featureItem}>
+              <CheckCircle2 size={24} color="#059669" style={styles.featureIcon} />
+              <Text style={styles.featureText}>Detailed attendance summary</Text>
             </View>
           </View>
 
@@ -101,6 +115,13 @@ export default function SelfAttendanceScreen() {
             <AlertCircle size={24} color="#D97706" />
             <Text style={styles.warningText}>
               Make sure to end the session once all students have marked their attendance.
+            </Text>
+          </View>
+
+          <View style={styles.timeEstimateContainer}>
+            <Clock size={20} color="#6B7280" />
+            <Text style={styles.timeEstimateText}>
+              Estimated time: 5-10 minutes
             </Text>
           </View>
 
@@ -116,22 +137,22 @@ export default function SelfAttendanceScreen() {
                 ]
               );
             }}
-            activeOpacity={0.8}
           >
             <Text style={styles.buttonText}>Start Session</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
-
-const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',
+  },
+  scrollView: {
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -139,22 +160,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
   },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#4B5563',
+  },
   header: {
     backgroundColor: '#FFFFFF',
     padding: 20,
     paddingTop: 60,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   backButton: {
     width: 40,
@@ -170,99 +188,61 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
   },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    margin: 16,
-    padding: 16,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#DC2626',
-  },
-  errorText: {
-    flex: 1,
-    color: '#B91C1C',
-    fontSize: 14,
-    marginLeft: 8,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollViewContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+  content: {
     padding: 24,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
     alignItems: 'center',
   },
   iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#1E40AF',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
-    elevation: 4,
-    shadowColor: '#1E40AF',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.1,
     shadowRadius: 6,
+    elevation: 4,
   },
   heading: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 12,
+    marginBottom: 16,
     textAlign: 'center',
   },
   description: {
     fontSize: 16,
-    color: '#6B7280',
+    color: '#4B5563',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 32,
     lineHeight: 24,
   },
-  infoCard: {
-    flexDirection: 'row',
-    backgroundColor: '#EFF6FF',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
+  featuresContainer: {
     width: '100%',
-    alignItems: 'flex-start',
+    marginBottom: 32,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#DBEAFE',
-    justifyContent: 'center',
+  featureItem: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
+  },
+  featureIcon: {
     marginRight: 12,
   },
-  infoTextContainer: {
-    flex: 1,
-  },
-  infoTitle: {
+  featureText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#1E40AF',
-    marginBottom: 4,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#3B82F6',
-    lineHeight: 22,
+    color: '#1F2937',
   },
   warningCard: {
     flexDirection: 'row',
@@ -272,13 +252,28 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 24,
     width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   warningText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: '#92400E',
-    lineHeight: 20,
+    lineHeight: 22,
     marginLeft: 12,
+  },
+  timeEstimateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  timeEstimateText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginLeft: 8,
   },
   button: {
     backgroundColor: '#1E40AF',
@@ -286,16 +281,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     borderRadius: 12,
     width: '100%',
-    elevation: 2,
+    alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
   },
   buttonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  errorContainer: {
+    margin: 16,
+    padding: 16,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#DC2626',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#B91C1C',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
 });

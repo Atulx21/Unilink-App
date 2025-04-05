@@ -83,31 +83,53 @@ export default function SelfAttendanceSessionScreen() {
   const endSession = async () => {
     try {
       setSubmitting(true);
+      setError(null);
+
+      // First, update the session status to completed
+      const { error: sessionUpdateError } = await supabase
+        .from('attendance_sessions')
+        .update({ status: 'completed' })
+        .eq('id', sessionId);
+
+      if (sessionUpdateError) throw sessionUpdateError;
+
+      // Get the latest attendance records to ensure we have the most up-to-date data
+      const { data: latestRecords, error: recordsQueryError } = await supabase
+        .from('attendance_records')
+        .select('student_id')
+        .eq('session_id', sessionId);
+
+      if (recordsQueryError) throw recordsQueryError;
+
+      // Create a set of student IDs who have already marked attendance
+      const markedStudentIds = new Set(latestRecords?.map(record => record.student_id) || []);
 
       // Mark all unmarked students as absent
       const unmarkedStudents = students
-        .filter(student => !student.attendance_status)
+        .filter(student => !markedStudentIds.has(student.id))
         .map(student => ({
           session_id: sessionId,
           student_id: student.id,
           status: 'absent',
           marked_by: student.id, // Self-marked
+          // Remove the marked_at field since it doesn't exist in the database
         }));
 
       if (unmarkedStudents.length > 0) {
+        console.log(`Marking ${unmarkedStudents.length} students as absent by default`);
+        
         const { error: recordsError } = await supabase
           .from('attendance_records')
           .insert(unmarkedStudents);
-
+    
         if (recordsError) throw recordsError;
       }
 
-      // Don't update session status to completed yet
-      // Navigate to summary page instead
-      router.push(`/attendance/${id}/summary?sessionId=${sessionId}`);
+      // Navigate to the summary page
+      router.replace(`/attendance/${id}/summary?sessionId=${sessionId}`);
     } catch (error) {
+      console.error('Error ending session:', error);
       setError(error.message);
-      Alert.alert('Error', error.message);
     } finally {
       setSubmitting(false);
     }
