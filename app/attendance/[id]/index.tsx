@@ -111,73 +111,10 @@ export default function GroupScreen() {
     </View>
   );
 
-  // Render different content based on user role (teacher or student)
-  const renderStudentView = () => (
-    <View style={styles.cardsContainer}>
-      <TouchableOpacity 
-        style={styles.card}
-        activeOpacity={0.7}
-        onPress={() => router.push({
-          pathname: `/attendance/${id}/mark-attendance`,
-          params: { groupId: id }
-        })}
-      >
-        <View style={[styles.cardIcon, { backgroundColor: '#EFF6FF' }]}>
-          <CheckCircle size={24} color="#1E40AF" />
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>Mark Attendance</Text>
-          <Text style={styles.cardDescription}>
-            Mark your attendance if a session is active
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      <TouchableOpacity 
-        style={styles.card}
-        activeOpacity={0.7}
-        onPress={() => router.push({
-          pathname: `/attendance/${id}/student-history`,
-          params: { groupId: id }
-        })}
-      >
-        <View style={[styles.cardIcon, { backgroundColor: '#F0FDF4' }]}>
-          <History size={24} color="#059669" />
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>My Attendance History</Text>
-          <Text style={styles.cardDescription}>
-            View your attendance records
-          </Text>
-        </View>
-      </TouchableOpacity>
-
-      <TouchableOpacity 
-        style={styles.card}
-        activeOpacity={0.7}
-        onPress={() => router.push({
-          pathname: `/attendance/${id}/members`,
-          params: { groupId: id }
-        })}
-      >
-        <View style={[styles.cardIcon, { backgroundColor: '#F5F3FF' }]}>
-          <Users size={24} color="#7C3AED" />
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>Members</Text>
-          <Text style={styles.cardDescription}>
-            View all members in this group
-          </Text>
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1E40AF" />
-        <Text style={styles.loadingText}>Loading group details...</Text>
       </View>
     );
   }
@@ -185,14 +122,129 @@ export default function GroupScreen() {
   if (error || !group) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>Error</Text>
         <Text style={styles.errorText}>{error || 'Group not found'}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchGroupDetails}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
       </View>
     );
   }
+
+  // Render different content based on user role (teacher or student)
+  const renderStudentView = () => {
+    return (
+      <View style={styles.cardsContainer}>
+        <TouchableOpacity 
+          style={styles.card}
+          activeOpacity={0.7}
+          onPress={() => router.push({
+            pathname: `/attendance/${id}/mark-attendance`,
+            params: { groupId: id }
+          })}
+        >
+          <View style={[styles.cardIcon, { backgroundColor: '#EFF6FF' }]}>
+            <CheckCircle size={24} color="#1E40AF" />
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.cardTitle}>Mark Attendance</Text>
+            <Text style={styles.cardDescription}>
+              Mark your attendance if a session is active
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.card}
+          activeOpacity={0.7}
+          onPress={() => router.push({
+            pathname: `/attendance/${id}/student-history`,
+            params: { groupId: id }
+          })}
+        >
+          <View style={[styles.cardIcon, { backgroundColor: '#F0FDF4' }]}>
+            <History size={24} color="#059669" />
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.cardTitle}>My Attendance History</Text>
+            <Text style={styles.cardDescription}>
+              View your attendance records
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.card}
+          activeOpacity={0.7}
+          onPress={() => router.push({
+            pathname: `/attendance/${id}/members`,
+            params: { groupId: id }
+          })}
+        >
+          <View style={[styles.cardIcon, { backgroundColor: '#F5F3FF' }]}>
+            <Users size={24} color="#7C3AED" />
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.cardTitle}>Members</Text>
+            <Text style={styles.cardDescription}>
+              View all members in this group
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderTeacherView = () => {
+    return (
+      <View style={styles.actionCardsContainer}>
+        {/* Teacher view content */}
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => router.push(`/attendance/${id}/manual`)}
+        >
+          <View style={styles.actionIconContainer}>
+            <ClipboardList size={28} color="#1E40AF" />
+          </View>
+          <Text style={styles.actionTitle}>Manual Attendance</Text>
+          <Text style={styles.actionDescription}>Mark attendance for all students</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => router.push(`/attendance/${id}/self`)}
+        >
+          <View style={styles.actionIconContainer}>
+            <Users size={28} color="#1E40AF" />
+          </View>
+          <Text style={styles.actionTitle}>Self Attendance</Text>
+          <Text style={styles.actionDescription}>Let students mark their own attendance</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => router.push(`/attendance/${id}/history`)}
+        >
+          <View style={styles.actionIconContainer}>
+            <History size={28} color="#1E40AF" />
+          </View>
+          <Text style={styles.actionTitle}>History</Text>
+          <Text style={styles.actionDescription}>View past attendance sessions</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={styles.actionCard}
+          activeOpacity={0.7}
+          onPress={() => router.push(`/attendance/${id}/members`)}
+        >
+          <View style={styles.actionIconContainer}>
+            <UserPlus size={28} color="#1E40AF" />
+          </View>
+          <Text style={styles.actionTitle}>Members</Text>
+          <Text style={styles.actionDescription}>View and manage group members</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -232,79 +284,7 @@ export default function GroupScreen() {
           </View>
         </View>
 
-        {isOwner ? (
-          <View style={styles.actionCardsContainer}>
-            {/* Teacher view content */}
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.7}
-              onPress={() => router.push(`/attendance/${id}/manual`)}
-            >
-              <View style={styles.actionIconContainer}>
-                <ClipboardList size={28} color="#1E40AF" />
-              </View>
-              <Text style={styles.actionTitle}>Manual Attendance</Text>
-              <Text style={styles.actionDescription}>Mark attendance for all students</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.7}
-              onPress={() => router.push(`/attendance/${id}/self`)}
-            >
-              <View style={styles.actionIconContainer}>
-                <Users size={28} color="#1E40AF" />
-              </View>
-              <Text style={styles.actionTitle}>Self Attendance</Text>
-              <Text style={styles.actionDescription}>Let students mark their own attendance</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.7}
-              onPress={() => router.push(`/attendance/${id}/history`)}
-            >
-              <View style={styles.actionIconContainer}>
-                <History size={28} color="#1E40AF" />
-              </View>
-              <Text style={styles.actionTitle}>History</Text>
-              <Text style={styles.actionDescription}>View past attendance sessions</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          renderStudentView()
-        )}
-
-        <View style={styles.membersSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Members</Text>
-            {isOwner && (
-              <TouchableOpacity
-                style={styles.addButton}
-                activeOpacity={0.7}
-                onPress={() => router.push(`/attendance/${id}/add-members`)}
-              >
-                <UserPlus size={20} color="#FFFFFF" />
-                <Text style={styles.addButtonText}>Add Members</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {members.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Users size={48} color="#D1D5DB" />
-              <Text style={styles.emptyStateText}>No members found</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={members}
-              renderItem={renderMember}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.membersList}
-              scrollEnabled={false}
-            />
-          )}
-        </View>
+        {isOwner ? renderTeacherView() : renderStudentView()}
       </ScrollView>
     </View>
   );
