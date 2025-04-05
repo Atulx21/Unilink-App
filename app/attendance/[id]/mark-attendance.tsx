@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Check, X, Clock, CircleAlert as AlertCircle } from 'lucide-react-native';
+import { Check, X, Clock, CircleAlert as AlertCircle, ArrowLeft } from 'lucide-react-native';
 
 interface Session {
   id: string;
@@ -40,10 +40,13 @@ export default function MarkAttendanceScreen() {
         .eq('status', 'active')
         .single();
 
-      if (sessionError) throw sessionError;
-      if (!session) {
-        setError('No active attendance session found');
-        return;
+      if (sessionError) {
+        if (sessionError.code === 'PGRST116') {
+          // No active session found - this is not an error
+          setSession(null);
+          return;
+        }
+        throw sessionError;
       }
 
       setSession(session);
@@ -79,13 +82,13 @@ export default function MarkAttendanceScreen() {
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
-
+  
       const { data: profile } = await supabase
         .from('profiles')
         .select('id')
         .eq('user_id', user.id)
         .single();
-
+  
       const { error: recordError } = await supabase
         .from('attendance_records')
         .insert({
@@ -94,19 +97,23 @@ export default function MarkAttendanceScreen() {
           status,
           marked_by: profile.id,
         });
-
+  
       if (recordError) throw recordError;
-
+  
       Alert.alert(
         'Success',
         'Your attendance has been marked',
-        [{ text: 'OK', onPress: () => router.back() }]
+        [{ text: 'OK', onPress: () => router.replace(`/attendance/${id}/summary?sessionId=${session?.id}`) }]
       );
     } catch (error) {
       setError(error.message);
     } finally {
       setMarking(false);
     }
+  };
+
+  const goBack = () => {
+    router.back();
   };
 
   if (loading) {
@@ -117,74 +124,76 @@ export default function MarkAttendanceScreen() {
     );
   }
 
-  if (error || !session) {
-    return (
-      <View style={styles.errorContainer}>
-        <AlertCircle size={48} color="#DC2626" />
-        <Text style={styles.errorText}>{error || 'Session not found'}</Text>
-      </View>
-    );
-  }
-
-  if (alreadyMarked) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Mark Attendance</Text>
-          <Text style={styles.subtitle}>{session.group.name}</Text>
-        </View>
-
-        <View style={styles.content}>
-          <Check size={64} color="#059669" />
-          <Text style={styles.message}>
-            You have already marked your attendance for this session
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={goBack}
+        >
+          <ArrowLeft size={24} color="#1F2937" />
+        </TouchableOpacity>
         <Text style={styles.title}>Mark Attendance</Text>
-        <Text style={styles.subtitle}>{session.group.name}</Text>
       </View>
 
-      <View style={styles.sessionInfo}>
-        <Clock size={20} color="#6B7280" />
-        <Text style={styles.date}>
-          {new Date(session.date).toLocaleDateString()}
-        </Text>
-      </View>
-
-      <View style={styles.content}>
-        <Text style={styles.prompt}>Are you present in class?</Text>
-
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.button, styles.presentButton]}
-            onPress={() => markAttendance('present')}
-            disabled={marking}
-          >
-            <Check size={24} color="#FFFFFF" />
-            <Text style={styles.buttonText}>Yes, I'm Present</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.absentButton]}
-            onPress={() => markAttendance('absent')}
-            disabled={marking}
-          >
-            <X size={24} color="#FFFFFF" />
-            <Text style={styles.buttonText}>No, I'm Absent</Text>
-          </TouchableOpacity>
+      {!session ? (
+        <View style={styles.noSessionContainer}>
+          <AlertCircle size={64} color="#6B7280" />
+          <Text style={styles.noSessionText}>
+            No active attendance session found
+          </Text>
+          <Text style={styles.noSessionSubtext}>
+            Please wait for your teacher to start an attendance session
+          </Text>
         </View>
+      ) : alreadyMarked ? (
+        <View style={styles.container}>
+          <View style={styles.sessionInfo}>
+            <Text style={styles.groupName}>{session.group.name}</Text>
+            <View style={styles.sessionMeta}>
+              <Clock size={16} color="#6B7280" />
+              <Text style={styles.sessionDate}>
+                {new Date(session.date).toLocaleDateString()}
+              </Text>
+            </View>
+          </View>
 
-        {marking && (
-          <ActivityIndicator style={styles.marking} color="#1E40AF" />
-        )}
-      </View>
+          <View style={styles.content}>
+            <Check size={64} color="#059669" />
+            <Text style={styles.message}>
+              You have already marked your attendance for this session
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.content}>
+          <Text style={styles.prompt}>Are you present in class?</Text>
+
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.button, styles.presentButton]}
+              onPress={() => markAttendance('present')}
+              disabled={marking}
+            >
+              <Check size={24} color="#FFFFFF" />
+              <Text style={styles.buttonText}>Yes, I'm Present</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.button, styles.absentButton]}
+              onPress={() => markAttendance('absent')}
+              disabled={marking}
+            >
+              <X size={24} color="#FFFFFF" />
+              <Text style={styles.buttonText}>No, I'm Absent</Text>
+            </TouchableOpacity>
+          </View>
+
+          {marking && (
+            <ActivityIndicator style={styles.marking} color="#1E40AF" />
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -286,5 +295,41 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     textAlign: 'center',
     marginTop: 16,
+  },
+  noSessionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  noSessionText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#4B5563',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  noSessionSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  groupName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  sessionMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sessionDate: {
+    color: '#6B7280',
+    marginLeft: 6,
+  },
+  backButton: {
+    marginRight: 16,
   },
 });
