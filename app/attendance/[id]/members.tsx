@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, Users, UserPlus, Search, X, AlertCircle } from 'lucide-react-native';
+import { ArrowLeft, Users, UserPlus, Search, X, AlertCircle, Trash2 } from 'lucide-react-native';
 
 interface Member {
   id: string;
@@ -132,6 +132,52 @@ export default function MembersScreen() {
     fetchMembers();
   };
 
+  // Add handleRemoveMember function after other handlers
+  const handleRemoveMember = async (memberId: string) => {
+    if (!isOwner) return;
+    
+    Alert.alert(
+      'Remove Member',
+      'Are you sure you want to remove this member from the group?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Remove', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('group_members')
+                .delete()
+                .eq('id', memberId);
+                
+              if (error) throw error;
+              
+              // Update the local state
+              setMembers(current => current.filter(m => m.id !== memberId));
+              
+              // Update stats
+              const removedMember = members.find(m => m.id === memberId);
+              if (removedMember) {
+                const role = removedMember.profile.role;
+                setStats(current => ({
+                  ...current,
+                  [role === 'teacher' ? 'teachers' : 'students']: 
+                    current[role === 'teacher' ? 'teachers' : 'students'] - 1
+                }));
+              }
+              
+              Alert.alert('Success', 'Member removed successfully');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to remove member');
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // Update the renderMember function
   const renderMember = ({ item }: { item: Member }) => (
     <View style={styles.memberCard}>
       <View style={styles.memberInfo}>
@@ -151,9 +197,17 @@ export default function MembersScreen() {
           {item.profile?.role || 'unknown'}
         </Text>
       </View>
+      {isOwner && (
+        <TouchableOpacity 
+          style={styles.removeButton}
+          onPress={() => handleRemoveMember(item.id)}
+        >
+          <Trash2 size={18} color="#EF4444" />
+        </TouchableOpacity>
+      )}
     </View>
   );
-
+  
   if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
