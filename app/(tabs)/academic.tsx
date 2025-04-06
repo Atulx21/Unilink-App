@@ -80,35 +80,40 @@ export default function AcademicScreen() {
         setGroups(formattedGroups || []);
       } else {
         // For students, get groups they are members of
-        const { data: studentGroups, error: groupsError } = await supabase
+        const { data: memberGroups, error: memberError } = await supabase
           .from('group_members')
           .select(`
-            group:groups(
-              id,
-              name,
+            group:groups (
+              id, 
+              name, 
               subject,
               owner_id,
               type,
               member_count:group_members(count)
             )
           `)
-          .eq('member_id', profile.id)
-          .eq('groups.type', 'academic');
+          .eq('member_id', profile.id);
   
-        if (groupsError) {
-          console.error('Groups error:', groupsError);
-          throw groupsError;
-        }
+        if (memberError) throw memberError;
   
-        // Format the groups data
-        const formattedGroups = studentGroups
-          .map(item => ({
-            ...item.group,
-            member_count: item.group.member_count[0]?.count || 0
-          }))
-          .filter(Boolean);
+        // Filter out academic groups and handle null values
+        const academicGroups = memberGroups
+          ?.filter(item => item.group && item.group.type === 'academic')
+          ?.map(item => {
+            // Safely handle the group object
+            const group = item.group;
+            if (!group) return null;
+            
+            return {
+              ...group,
+              member_count: typeof group.member_count === 'object' ? 
+                (group.member_count[0]?.count || 0) : 
+                group.member_count
+            };
+          })
+          .filter(Boolean) || []; // Filter out any null values
   
-        setGroups(formattedGroups || []);
+        setGroups(academicGroups);
       }
     } catch (error: any) {
       console.error('Fetch error:', error);
