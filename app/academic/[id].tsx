@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Book, Award, FileText, MessageSquare, Users, ArrowLeft, Settings } from 'lucide-react-native';
@@ -174,7 +174,17 @@ export default function AcademicGroupDashboard() {
         <TouchableOpacity 
           style={[styles.card, { borderLeftColor: '#7C3AED' }]}
           activeOpacity={0.7}
-          onPress={() => router.push(`/academic/${id}/chat`)}
+          onPress={() => {
+            try {
+              router.push({
+                pathname: `/academic/${id}/chat`,
+                params: { id }
+              });
+            } catch (error) {
+              console.error('Navigation error:', error);
+              Alert.alert('Navigation Error', 'Could not open chat. Please try again.');
+            }
+          }}
         >
           <View style={[styles.cardIcon, { backgroundColor: '#F5F3FF' }]}>
             <MessageSquare size={24} color="#7C3AED" />
