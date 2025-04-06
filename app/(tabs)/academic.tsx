@@ -1,26 +1,27 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { BookOpen, Plus, FileText, Calendar } from 'lucide-react-native';
+import { Users, Plus, BookOpen, School } from 'lucide-react-native';
 
-interface AcademicGroup {
+// Define types
+interface Group {
   id: string;
   name: string;
+  subject: string;
   owner_id: string;
-  post_count: number;
-  recent_post: {
-    title: string;
-    type: string;
-    created_at: string;
-  } | null;
+  member_count: number;
+  type: string;
 }
 
+type UserRole = 'student' | 'teacher';
+
 export default function AcademicScreen() {
-  const [groups, setGroups] = useState<AcademicGroup[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<'student' | 'teacher' | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
 
   useEffect(() => {
     fetchGroups();
@@ -28,72 +29,123 @@ export default function AcademicScreen() {
 
   const fetchGroups = async () => {
     try {
+      setLoading(true);
+      setError(null);
+  
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
-
-      // Get user role
-      const { data: profile } = await supabase
+  
+      // Get user profile
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role')
+        .select('id, role')
         .eq('user_id', user.id)
         .single();
-
+  
+      if (profileError) {
+        console.error('Profile error:', profileError);
+        throw profileError;
+      }
+  
       setUserRole(profile?.role);
-
-      // Get groups with recent post
-      const { data: groups, error } = await supabase
-        .from('groups')
-        .select(`
-          id,
-          name,
-          owner_id,
-          post_count:academic_posts(count),
-          recent_post:academic_posts(
-            title,
+  
+      if (profile.role === 'teacher') {
+        // For teachers, get groups they own
+        const { data: teacherGroups, error: groupsError } = await supabase
+          .from('groups')
+          .select(`
+            id, 
+            name, 
+            subject,
+            owner_id,
             type,
-            created_at
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setGroups(groups || []);
-    } catch (error) {
+            member_count:group_members(count)
+          `)
+          .eq('owner_id', profile.id)
+          .eq('type', 'academic');
+  
+        if (groupsError) {
+          console.error('Groups error:', groupsError);
+          throw groupsError;
+        }
+  
+        // Format the groups data
+        const formattedGroups = teacherGroups.map(group => ({
+          ...group,
+          member_count: typeof group.member_count === 'object' ? 
+            (group.member_count[0]?.count || 0) : 
+            group.member_count
+        }));
+  
+        setGroups(formattedGroups || []);
+      } else {
+        // For students, get groups they are members of
+        const { data: studentGroups, error: groupsError } = await supabase
+          .from('group_members')
+          .select(`
+            group:groups(
+              id,
+              name,
+              subject,
+              owner_id,
+              type,
+              member_count:group_members(count)
+            )
+          `)
+          .eq('member_id', profile.id)
+          .eq('groups.type', 'academic');
+  
+        if (groupsError) {
+          console.error('Groups error:', groupsError);
+          throw groupsError;
+        }
+  
+        // Format the groups data
+        const formattedGroups = studentGroups
+          .map(item => ({
+            ...item.group,
+            member_count: item.group.member_count[0]?.count || 0
+          }))
+          .filter(Boolean);
+  
+        setGroups(formattedGroups || []);
+      }
+    } catch (error: any) {
+      console.error('Fetch error:', error);
       setError(error.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const renderGroup = ({ item }: { item: AcademicGroup }) => (
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchGroups();
+  };
+
+  const renderGroup = ({ item }: { item: Group }) => (
     <TouchableOpacity
       style={styles.groupCard}
       onPress={() => router.push(`/academic/${item.id}`)}
     >
-      <View style={styles.groupHeader}>
+      <View style={styles.groupInfo}>
         <Text style={styles.groupName}>{item.name}</Text>
-        <View style={styles.postCount}>
-          <FileText size={16} color="#6B7280" />
-          <Text style={styles.postCountText}>{item.post_count} posts</Text>
+        {item.subject && (
+          <View style={styles.subjectContainer}>
+            <School size={14} color="#4B5563" />
+            <Text style={styles.subjectText}>{item.subject}</Text>
+          </View>
+        )}
+        <View style={styles.groupStats}>
+          <Users size={16} color="#6B7280" />
+          <Text style={styles.memberCount}>{item.member_count} members</Text>
         </View>
       </View>
-
-      {item.recent_post && (
-        <View style={styles.recentPost}>
-          <Text style={styles.recentPostLabel}>Recent Activity</Text>
-          <Text style={styles.recentPostTitle}>{item.recent_post.title}</Text>
-          <View style={styles.recentPostMeta}>
-            <Text style={styles.postType}>{item.recent_post.type}</Text>
-            <Text style={styles.postDate}>
-              {new Date(item.recent_post.created_at).toLocaleDateString()}
-            </Text>
-          </View>
-        </View>
-      )}
     </TouchableOpacity>
   );
 
-  if (loading) {
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1E40AF" />
@@ -104,7 +156,10 @@ export default function AcademicScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Academic</Text>
+        <View style={styles.titleContainer}>
+          <Text style={styles.mainTitle}>Academic</Text>
+          <Text style={styles.subtitle}>Groups</Text>
+        </View>
         {userRole === 'teacher' && (
           <TouchableOpacity
             style={styles.createButton}
@@ -126,12 +181,20 @@ export default function AcademicScreen() {
         <View style={styles.emptyContainer}>
           <BookOpen size={48} color="#9CA3AF" />
           <Text style={styles.emptyText}>No academic groups found</Text>
-          {userRole === 'teacher' && (
+          {userRole === 'teacher' ? (
             <TouchableOpacity
               style={styles.createFirstButton}
-              onPress={() => router.push('/academic/create')}
+              onPress={() => router.push('/(app)/academic/create')}
             >
-              <Text style={styles.createFirstButtonText}>Create your first group</Text>
+              <Text style={styles.createFirstButtonText}>Create your first academic group</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.joinFirstButton}
+              
+              onPress={() => router.push('/(app)/academic/join')}
+            >
+              <Text style={styles.joinFirstButtonText}>Join an academic group with code</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -142,12 +205,20 @@ export default function AcademicScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#1E40AF"]}
+            />
+          }
         />
       )}
     </View>
   );
 }
 
+// Updated styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -157,6 +228,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F3F4F6',
   },
   header: {
     flexDirection: 'row',
@@ -167,19 +239,33 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    elevation: 2,
   },
-  title: {
-    fontSize: 24,
+  titleContainer: {
+    flexDirection: 'column',
+  },
+  mainTitle: {
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#1F2937',
   },
+  subtitle: {
+    fontSize: 18,
+    color: '#4B5563',
+    marginTop: 4,
+  },
   createButton: {
     backgroundColor: '#1E40AF',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   list: {
     padding: 16,
@@ -192,65 +278,48 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 1,
+      height: 2,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 3,
+    elevation: 3,
+    borderLeftWidth: 4,
+    borderLeftColor: '#1E40AF',
   },
-  groupHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+  groupInfo: {
+    flex: 1,
   },
   groupName: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  postCount: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  postCountText: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  recentPost: {
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 12,
-  },
-  recentPostLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  recentPostTitle: {
-    fontSize: 16,
+    fontWeight: '700',
     color: '#1F2937',
     marginBottom: 8,
   },
-  recentPostMeta: {
+  subjectContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    marginBottom: 8,
+    gap: 6,
   },
-  postType: {
-    fontSize: 12,
-    color: '#1E40AF',
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    overflow: 'hidden',
+  subjectText: {
+    fontSize: 14,
+    color: '#4B5563',
+    fontStyle: 'italic',
   },
-  postDate: {
-    fontSize: 12,
+  groupStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  memberCount: {
+    fontSize: 14,
     color: '#6B7280',
+    fontWeight: '500',
   },
   errorContainer: {
     flex: 1,
@@ -269,6 +338,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
+    elevation: 2,
   },
   retryButtonText: {
     color: '#FFFFFF',
@@ -286,14 +356,36 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 12,
     marginBottom: 24,
+    textAlign: 'center',
   },
   createFirstButton: {
     backgroundColor: '#1E40AF',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   createFirstButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  joinFirstButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  joinFirstButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
