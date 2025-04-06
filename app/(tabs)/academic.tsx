@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
   },
   mainTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
   },

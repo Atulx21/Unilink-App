@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Animated } from 'react-native';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Check, X } from 'lucide-react-native';
+import { Check, X, ArrowLeft } from 'lucide-react-native';
 
 export default function CreateAcademicGroupScreen() {
   const [loading, setLoading] = useState(false);
@@ -139,52 +139,65 @@ export default function CreateAcademicGroupScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
+      {/* Hide the default header and use our custom one */}
+      <Stack.Screen options={{ headerShown: false }} />
+      
       <View style={styles.header}>
-        <Text style={styles.title}>Create Academic Group</Text>
-      </View>
-
-      <View style={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Group Name</Text>
-          <TextInput
-            style={styles.input}
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Enter group name"
-            placeholderTextColor="#9CA3AF"
-          />
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Subject (Optional)</Text>
-          <TextInput
-            style={styles.input}
-            value={subject}
-            onChangeText={setSubject}
-            placeholder="e.g. Mathematics, Physics, etc."
-            placeholderTextColor="#9CA3AF"
-          />
-        </View>
-
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.createButton, loading && styles.disabledButton]}
-          onPress={handleCreate}
-          disabled={loading}
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => router.back()}
         >
-          {loading ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Text style={styles.createButtonText}>Create Group</Text>
-          )}
+          <ArrowLeft size={24} color="#1F2937" />
         </TouchableOpacity>
+        <View style={styles.headerTextContainer}>
+          <Text style={styles.title}>Create Academic Group</Text>
+        </View>
       </View>
+
+      <ScrollView style={styles.content}>
+        <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Group Name</Text>
+            <TextInput
+              style={styles.input}
+              value={groupName}
+              onChangeText={setGroupName}
+              placeholder="Enter group name"
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Subject (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={subject}
+              onChangeText={setSubject}
+              placeholder="e.g. Mathematics, Physics, etc."
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+
+          {error && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.createButton, loading && styles.disabledButton]}
+            onPress={handleCreate}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.createButtonText}>Create Group</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
 
       {/* Success Modal */}
       {showSuccess && (
@@ -213,7 +226,7 @@ export default function CreateAcademicGroupScreen() {
           </Animated.View>
         </View>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -223,17 +236,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    padding: 20,
     paddingTop: 60,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
     elevation: 2,
+  },
+  backButton: {
+    marginRight: 16,
+    padding: 8,
+  },
+  headerTextContainer: {
+    flex: 1,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
+  },
+  content: {
+    flex: 1,
   },
   form: {
     padding: 20,
@@ -243,7 +269,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#4B5563',
     marginBottom: 8,
   },
@@ -252,7 +278,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D1D5DB',
     borderRadius: 8,
-    padding: 12,
+    padding: 14,
     fontSize: 16,
     color: '#1F2937',
   },
@@ -310,7 +336,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   successTitle: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
     marginBottom: 8,
@@ -335,7 +361,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   codeValue: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#1E40AF',
     letterSpacing: 2,
