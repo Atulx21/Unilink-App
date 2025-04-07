@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Users, Plus, History, RefreshCw } from 'lucide-react-native';
+import { Users, Plus, History, RefreshCw, UserPlus } from 'lucide-react-native';
 
 // Define types if not already in @/types
 interface Group {
@@ -22,10 +22,23 @@ export default function AttendanceScreen() {
   const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [activeTab, setActiveTab] = useState<AttendanceTab>('groups');
+  const [attendanceStats, setAttendanceStats] = useState<Record<string, {
+    percentage: number;
+    present: number;
+    absent: number;
+    total: number;
+    loading: boolean;
+  }>>({});
 
   useEffect(() => {
     fetchGroups();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'tracking' && userRole === 'student' && groups.length > 0) {
+      fetchAttendanceStats();
+    }
+  }, [activeTab, groups, userRole]);
 
   const fetchGroups = async () => {
     try {
@@ -114,9 +127,86 @@ export default function AttendanceScreen() {
     }
   };
 
+  const fetchAttendanceStats = async () => {
+    try {
+      // Get current user's profile ID
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+      
+      // Initialize stats with loading state
+      const initialStats = groups.reduce((acc, group) => {
+        acc[group.id] = { percentage: 0, present: 0, absent: 0, total: 0, loading: true };
+        return acc;
+      }, {} as Record<string, any>);
+      
+      setAttendanceStats(initialStats);
+      
+      // Fetch attendance records for each group
+      for (const group of groups) {
+        // Get attendance records for this student in this group
+        // First, get all sessions for this group
+        const { data: sessions, error: sessionsError } = await supabase
+          .from('attendance_sessions')
+          .select('id')
+          .eq('group_id', group.id)
+          .eq('status', 'completed');
+        
+        if (sessionsError) throw sessionsError;
+        
+        if (!sessions || sessions.length === 0) {
+          // No sessions for this group yet
+          setAttendanceStats(prev => ({
+            ...prev,
+            [group.id]: { percentage: 0, present: 0, absent: 0, total: 0, loading: false }
+          }));
+          continue;
+        }
+        
+        // Get attendance records for these sessions
+        const sessionIds = sessions.map(s => s.id);
+        const { data: records, error: recordsError } = await supabase
+          .from('attendance_records')
+          .select('id, status, session_id')
+          .eq('student_id', profile.id)
+          .in('session_id', sessionIds);
+        
+        if (recordsError) throw recordsError;
+        
+        // Calculate stats
+        const total = records?.length || 0;
+        const present = records?.filter(r => r.status === 'present').length || 0;
+        const absent = records?.filter(r => r.status === 'absent').length || 0;
+        const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
+        
+        setAttendanceStats(prev => ({
+          ...prev,
+          [group.id]: { percentage, present, absent, total, loading: false }
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching attendance stats:', error);
+      // Update all groups to show error state
+      const errorStats = groups.reduce((acc, group) => {
+        acc[group.id] = { percentage: 0, present: 0, absent: 0, total: 0, loading: false };
+        return acc;
+      }, {} as Record<string, any>);
+      
+      setAttendanceStats(errorStats);
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchGroups();
+    if (activeTab === 'tracking' && userRole === 'student') {
+      fetchAttendanceStats();
+    }
   };
 
   const renderGroup = ({ item }: { item: Group }) => (
@@ -146,13 +236,22 @@ export default function AttendanceScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Attendance</Text>
-        {userRole === 'teacher' && activeTab === 'groups' && (
-          <TouchableOpacity
-            style={styles.createButton}
-            onPress={() => router.push('/attendance/create')}
-          >
-            <Plus size={24} color="#FFFFFF" />
-          </TouchableOpacity>
+        {activeTab === 'groups' && (
+          userRole === 'teacher' ? (
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={() => router.push('/attendance/create')}
+            >
+              <Plus size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.joinButton}
+              onPress={() => router.push('/attendance/join')}
+            >
+              <UserPlus size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          )
         )}
       </View>
 
@@ -187,12 +286,19 @@ export default function AttendanceScreen() {
           <View style={styles.emptyContainer}>
             <Users size={48} color="#9CA3AF" />
             <Text style={styles.emptyText}>No groups found</Text>
-            {userRole === 'teacher' && (
+            {userRole === 'teacher' ? (
               <TouchableOpacity
                 style={styles.createFirstButton}
                 onPress={() => router.push('/attendance/create')}
               >
                 <Text style={styles.createFirstButtonText}>Create your first group</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.joinFirstButton}
+                onPress={() => router.push('/attendance/join')}
+              >
+                <Text style={styles.joinFirstButtonText}>Join a group with code</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -220,10 +326,34 @@ export default function AttendanceScreen() {
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.trackingCard}
-                  onPress={() => router.push(`/tracking/${item.id}`)}
+                  onPress={() => router.push(`/attendance/${item.id}/student-history`)}
                 >
                   <Text style={styles.trackingGroupName}>{item.name}</Text>
-                  <Text style={styles.trackingAttendance}>Attendance: Calculating...</Text>
+                  
+                  {attendanceStats[item.id]?.loading ? (
+                    <View style={styles.attendanceLoadingContainer}>
+                      <ActivityIndicator size="small" color="#1E40AF" />
+                      <Text style={styles.trackingAttendance}>Calculating...</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.attendanceStatsContainer}>
+                      <View style={styles.percentageContainer}>
+                        <Text style={[
+                          styles.percentageText,
+                          attendanceStats[item.id]?.percentage >= 75 ? styles.goodAttendance :
+                          attendanceStats[item.id]?.percentage >= 60 ? styles.warningAttendance :
+                          styles.poorAttendance
+                        ]}>
+                          {attendanceStats[item.id]?.percentage}%
+                        </Text>
+                      </View>
+                      <View style={styles.attendanceDetailsContainer}>
+                        <Text style={styles.trackingAttendance}>
+                          Present: {attendanceStats[item.id]?.present} | Absent: {attendanceStats[item.id]?.absent} | Total: {attendanceStats[item.id]?.total}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
                 </TouchableOpacity>
               )}
               keyExtractor={(item) => item.id}
@@ -398,6 +528,97 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   trackingContainer: {
+    flex: 1,
+  },
+  trackingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  trackingGroupName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  trackingAttendance: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  joinButton: {
+    backgroundColor: '#10B981', // Green color for join button
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+  },
+  
+  joinFirstButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    elevation: 2,
+  },
+  
+  joinFirstButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  trackingGroupName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  trackingAttendance: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  attendanceLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 8,
+  },
+  attendanceStatsContainer: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  percentageContainer: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 12,
+  },
+  percentageText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  goodAttendance: {
+    color: '#059669', // Green
+  },
+  warningAttendance: {
+    color: '#D97706', // Amber
+  },
+  poorAttendance: {
+    color: '#DC2626', // Red
+  },
+  attendanceDetailsContainer: {
     flex: 1,
   },
   trackingCard: {

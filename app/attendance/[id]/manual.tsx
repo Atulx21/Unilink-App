@@ -74,13 +74,13 @@ export default function ManualAttendanceScreen() {
         .insert({
           group_id: id,
           type: 'manual',
-          status: 'completed',
+          status: 'active', // Changed from 'completed' to 'active'
         })
         .select()
         .single();
-
+  
       if (sessionError) throw sessionError;
-
+  
       // Get marker's profile ID
       const { data: { user } } = await supabase.auth.getUser();
       const { data: profile } = await supabase
@@ -88,7 +88,7 @@ export default function ManualAttendanceScreen() {
         .select('id')
         .eq('user_id', user?.id)
         .single();
-
+  
       // Create attendance records
       const records = students
         .filter(student => student.attendance_status)
@@ -98,16 +98,18 @@ export default function ManualAttendanceScreen() {
           status: student.attendance_status,
           marked_by: profile.id,
         }));
-
+  
       const { error: recordsError } = await supabase
         .from('attendance_records')
         .insert(records);
-
+  
       if (recordsError) throw recordsError;
-
-      router.replace(`/attendance/${id}`);
+  
+      // Navigate to summary page instead of going back to attendance list
+      router.push(`/attendance/${id}/summary?sessionId=${session.id}`);
     } catch (error) {
       setError(error.message);
+      Alert.alert('Error', error.message);
     } finally {
       setSubmitting(false);
     }

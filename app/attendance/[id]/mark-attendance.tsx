@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, SafeAreaView } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { Check, X, Clock, CircleAlert as AlertCircle } from 'lucide-react-native';
+import { ArrowLeft, CheckCircle, X, AlertCircle, Calendar, Clock } from 'lucide-react-native';
 
 interface Session {
   id: string;
@@ -20,6 +20,7 @@ export default function MarkAttendanceScreen() {
   const [marking, setMarking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alreadyMarked, setAlreadyMarked] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchActiveSession();
@@ -40,10 +41,13 @@ export default function MarkAttendanceScreen() {
         .eq('status', 'active')
         .single();
 
-      if (sessionError) throw sessionError;
-      if (!session) {
-        setError('No active attendance session found');
-        return;
+      if (sessionError) {
+        if (sessionError.code === 'PGRST116') {
+          // No active session found - this is not an error
+          setSession(null);
+          return;
+        }
+        throw sessionError;
       }
 
       setSession(session);
@@ -76,7 +80,10 @@ export default function MarkAttendanceScreen() {
   const markAttendance = async (status: 'present' | 'absent') => {
     try {
       setMarking(true);
-      
+      setError(null);
+      setSuccessMessage(null);
+
+      // Get user profile
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
 
@@ -86,22 +93,28 @@ export default function MarkAttendanceScreen() {
         .eq('user_id', user.id)
         .single();
 
+      // Create attendance record
       const { error: recordError } = await supabase
         .from('attendance_records')
         .insert({
-          session_id: session?.id,
+          session_id: session.id,
           student_id: profile.id,
-          status,
+          status: status,
           marked_by: profile.id,
         });
 
       if (recordError) throw recordError;
 
-      Alert.alert(
-        'Success',
-        'Your attendance has been marked',
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      // Show success message
+      setSuccessMessage(`Your attendance has been marked as ${status}!`);
+      
+      // Set already marked to prevent multiple submissions
+      setAlreadyMarked(true);
+      
+      // Optional: Auto navigate back after a delay
+      setTimeout(() => {
+        router.back();
+      }, 3000);
     } catch (error) {
       setError(error.message);
     } finally {
@@ -109,87 +122,149 @@ export default function MarkAttendanceScreen() {
     }
   };
 
+  const goBack = () => {
+    router.back();
+  };
+
+  // Remove duplicate loading check - we already have one at the beginning of the render
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#1E40AF" />
-      </View>
-    );
-  }
-
-  if (error || !session) {
-    return (
-      <View style={styles.errorContainer}>
-        <AlertCircle size={48} color="#DC2626" />
-        <Text style={styles.errorText}>{error || 'Session not found'}</Text>
-      </View>
-    );
-  }
-
-  if (alreadyMarked) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Mark Attendance</Text>
-          <Text style={styles.subtitle}>{session.group.name}</Text>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1E40AF" />
         </View>
-
-        <View style={styles.content}>
-          <Check size={64} color="#059669" />
-          <Text style={styles.message}>
-            You have already marked your attendance for this session
-          </Text>
-        </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Mark Attendance</Text>
-        <Text style={styles.subtitle}>{session.group.name}</Text>
-      </View>
-
-      <View style={styles.sessionInfo}>
-        <Clock size={20} color="#6B7280" />
-        <Text style={styles.date}>
-          {new Date(session.date).toLocaleDateString()}
-        </Text>
-      </View>
-
-      <View style={styles.content}>
-        <Text style={styles.prompt}>Are you present in class?</Text>
-
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.button, styles.presentButton]}
-            onPress={() => markAttendance('present')}
-            disabled={marking}
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={goBack}
           >
-            <Check size={24} color="#FFFFFF" />
-            <Text style={styles.buttonText}>Yes, I'm Present</Text>
+            <ArrowLeft size={24} color="#1F2937" />
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.absentButton]}
-            onPress={() => markAttendance('absent')}
-            disabled={marking}
-          >
-            <X size={24} color="#FFFFFF" />
-            <Text style={styles.buttonText}>No, I'm Absent</Text>
-          </TouchableOpacity>
+          <Text style={styles.title}>Mark Attendance</Text>
+          <View style={styles.headerRight} />
         </View>
 
-        {marking && (
-          <ActivityIndicator style={styles.marking} color="#1E40AF" />
+        {error ? (
+          <View style={styles.errorContainer}>
+            <AlertCircle size={48} color="#DC2626" />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={fetchActiveSession}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !session ? (
+          <View style={styles.noSessionContainer}>
+            <AlertCircle size={48} color="#F59E0B" />
+            <Text style={styles.noSessionText}>No active attendance session found</Text>
+            <Text style={styles.noSessionSubtext}>
+              Please wait for your teacher to start an attendance session
+            </Text>
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={fetchActiveSession}
+            >
+              <Text style={styles.refreshButtonText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        ) : successMessage ? (
+          <View style={styles.successContainer}>
+            <CheckCircle size={64} color="#059669" />
+            <Text style={styles.successTitle}>Success!</Text>
+            <Text style={styles.successMessage}>{successMessage}</Text>
+            <Text style={styles.redirectingText}>Redirecting back...</Text>
+          </View>
+        ) : alreadyMarked ? (
+          <View style={styles.alreadyMarkedContainer}>
+            <CheckCircle size={48} color="#059669" />
+            <Text style={styles.alreadyMarkedTitle}>Already Marked</Text>
+            <Text style={styles.alreadyMarkedText}>
+              You have already marked your attendance for this session
+            </Text>
+            <TouchableOpacity
+              style={styles.backToGroupButton}
+              onPress={goBack}
+            >
+              <Text style={styles.backToGroupButtonText}>Back to Group</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.sessionContainer}>
+            <View style={styles.sessionCard}>
+              <Text style={styles.sessionTitle}>Active Session</Text>
+              <Text style={styles.groupName}>{session.group.name}</Text>
+              
+              <View style={styles.sessionDetails}>
+                <View style={styles.sessionDetailRow}>
+                  <Calendar size={18} color="#4B5563" />
+                  <Text style={styles.sessionDetailText}>
+                    {new Date(session.date).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })}
+                  </Text>
+                </View>
+                
+                <View style={styles.sessionDetailRow}>
+                  <Clock size={18} color="#4B5563" />
+                  <Text style={styles.sessionDetailText}>
+                    {session.type === 'manual' ? 'Manual' : 'Self'} Attendance
+                  </Text>
+                </View>
+              </View>
+            </View>
+            
+            <Text style={styles.markPrompt}>Mark your attendance now</Text>
+            
+            <View style={styles.buttonsContainer}>
+              <TouchableOpacity
+                style={[styles.button, styles.presentButton, marking && styles.buttonDisabled]}
+                onPress={() => markAttendance('present')}
+                disabled={marking}
+              >
+                <CheckCircle size={24} color="#FFFFFF" />
+                <Text style={styles.buttonText}>Present</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.button, styles.absentButton, marking && styles.buttonDisabled]}
+                onPress={() => markAttendance('absent')}
+                disabled={marking}
+              >
+                <X size={24} color="#FFFFFF" />
+                <Text style={styles.buttonText}>Absent</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {marking && (
+              <View style={styles.markingContainer}>
+                <ActivityIndicator size="small" color="#1E40AF" />
+                <Text style={styles.markingText}>Marking attendance...</Text>
+              </View>
+            )}
+          </View>
         )}
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+  },
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',
@@ -200,60 +275,206 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     padding: 20,
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    elevation: 2,
+  },
+  backButton: {
+    padding: 8,
+  },
+  headerRight: {
+    width: 40, // Same width as backButton for balance
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 4,
   },
-  subtitle: {
-    fontSize: 18,
-    color: '#4B5563',
-  },
-  sessionInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    marginTop: 1,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    gap: 8,
-  },
-  date: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  content: {
+  errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
-  prompt: {
-    fontSize: 24,
+  errorText: {
+    fontSize: 16,
+    color: '#DC2626',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#1E40AF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
+  },
+  noSessionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  noSessionText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#4B5563',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  noSessionSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 24,
+    textAlign: 'center',
+    maxWidth: '80%',
+  },
+  refreshButton: {
+    backgroundColor: '#1E40AF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  refreshButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  successContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#059669',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  successMessage: {
+    fontSize: 18,
     color: '#1F2937',
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
-  actions: {
+  redirectingText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+  },
+  alreadyMarkedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  alreadyMarkedTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#059669',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  alreadyMarkedText: {
+    fontSize: 16,
+    color: '#4B5563',
+    textAlign: 'center',
+    marginBottom: 24,
+    maxWidth: '80%',
+  },
+  backToGroupButton: {
+    backgroundColor: '#1E40AF',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backToGroupButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sessionContainer: {
+    flex: 1,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sessionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
     width: '100%',
+    marginBottom: 24,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  sessionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E40AF',
+    marginBottom: 12,
+  },
+  groupName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  sessionDetails: {
+    gap: 12,
+  },
+  sessionDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sessionDetailText: {
+    fontSize: 15,
+    color: '#4B5563',
+  },
+  markPrompt: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  buttonsContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 16,
+    marginBottom: 24,
   },
   button: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
     borderRadius: 8,
     gap: 8,
+    elevation: 2,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
   presentButton: {
     backgroundColor: '#059669',
@@ -266,25 +487,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  marking: {
-    marginTop: 24,
-  },
-  message: {
-    fontSize: 18,
-    color: '#059669',
-    textAlign: 'center',
-    marginTop: 16,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  markingContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#DC2626',
-    textAlign: 'center',
+    justifyContent: 'center',
+    gap: 8,
     marginTop: 16,
+  },
+  markingText: {
+    fontSize: 14,
+    color: '#4B5563',
+  },
+  sessionDate: {
+    color: '#6B7280',
   },
 });

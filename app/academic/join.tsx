@@ -1,36 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView,
-  Animated,
-  Dimensions,
-  Modal
-} from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Animated } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Check, X } from 'lucide-react-native';
 
-
-function generateGroupCode() {
-  // Generate a 6-character alphanumeric code
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-export default function CreateGroupScreen() {
+export default function JoinAcademicGroupScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [groupName, setGroupName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
-  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
+  const [joinedGroupId, setJoinedGroupId] = useState<string | null>(null);
+  const [joinedGroupName, setJoinedGroupName] = useState<string>('');
   
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -62,65 +42,66 @@ export default function CreateGroupScreen() {
     }
   }, [showSuccess]);
 
-  const handleCreate = async () => {
+  const handleJoin = async () => {
     try {
       setLoading(true);
       setError(null);
+
+      if (!joinCode.trim() || joinCode.length < 6) {
+        throw new Error('Please enter a valid 6-character code');
+      }
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
 
       // Get user profile
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('id')
+        .select('id, role')
         .eq('user_id', user.id)
         .single();
 
+      if (profileError) throw new Error('Could not fetch your profile');
       if (!profile) throw new Error('Profile not found');
 
-      // Generate a unique group code
-      let groupCode;
-      let isCodeUnique = false;
-      while (!isCodeUnique) {
-        groupCode = generateGroupCode();
-        const { data: existingGroup } = await supabase
-          .from('groups')
-          .select('id')
-          .eq('join_code', groupCode)
-          .single();
-        
-        if (!existingGroup) {
-          isCodeUnique = true;
-        }
-      }
-
-      // Create group with join code
+      // Find group by join code
       const { data: group, error: groupError } = await supabase
         .from('groups')
-        .insert({
-          name: groupName,
-          owner_id: profile.id,
-          join_code: groupCode,
-        })
-        .select()
+        .select('id, name, type')
+        .eq('invite_code', joinCode.toUpperCase())
+        .eq('type', 'academic')
         .single();
 
-      if (groupError) throw groupError;
+      if (groupError || !group) {
+        throw new Error('Invalid join code or not an academic group');
+      }
 
-      // Add owner as a member
+      // Check if already a member
+      const { data: existingMember, error: memberCheckError } = await supabase
+        .from('group_members')
+        .select('id')
+        .eq('group_id', group.id)
+        .eq('member_id', profile.id)
+        .single();
+
+      if (!memberCheckError && existingMember) {
+        throw new Error('You are already a member of this group');
+      }
+
+      // Add user as a member
       const { error: memberError } = await supabase
         .from('group_members')
         .insert({
           group_id: group.id,
           member_id: profile.id,
-          role: 'teacher',
+          role: profile.role,
         });
 
-      if (memberError) throw memberError;
+      if (memberError) throw new Error('Failed to join the group');
 
-      // Show success popup instead of immediately navigating
-      setCreatedGroupId(group.id);
+      // Show success popup
+      setJoinedGroupId(group.id);
+      setJoinedGroupName(group.name);
       setShowSuccess(true);
     } catch (error) {
       setError(error.message);
@@ -130,70 +111,72 @@ export default function CreateGroupScreen() {
   };
 
   const handleContinue = () => {
-    if (createdGroupId) {
-      router.replace(`/attendance/${createdGroupId}`);
+    if (joinedGroupId) {
+      router.replace(`/academic/${joinedGroupId}`);
     }
   };
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Create Group</Text>
+        <Text style={styles.title}>Join Academic Group</Text>
       </View>
-
-      {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.form}>
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Group Name</Text>
+          <Text style={styles.label}>Enter Group Code</Text>
           <TextInput
             style={styles.input}
-            value={groupName}
-            onChangeText={setGroupName}
-            placeholder="Enter group name"
+            value={joinCode}
+            onChangeText={(text) => setJoinCode(text.toUpperCase())}
+            placeholder="Enter 6-character code"
+            placeholderTextColor="#9CA3AF"
+            autoCapitalize="characters"
+            maxLength={6}
           />
-          <Text style={styles.hint}>
-            A unique join code will be generated automatically when you create the group.
-          </Text>
         </View>
 
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
         <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleCreate}
-          disabled={loading || !groupName.trim()}
+          style={[styles.joinButton, loading && styles.disabledButton]}
+          onPress={handleJoin}
+          disabled={loading}
         >
-          <Text style={styles.buttonText}>
-            {loading ? 'Creating...' : 'Create Group'}
-          </Text>
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.joinButtonText}>Join Group</Text>
+          )}
         </TouchableOpacity>
       </View>
 
       {/* Success Modal */}
-      <Modal
-        visible={showSuccess}
-        transparent={true}
-        animationType="none"
-      >
+      {showSuccess && (
         <View style={styles.modalOverlay}>
-          <Animated.View 
+          <Animated.View
             style={[
               styles.successModal,
               {
                 opacity: fadeAnim,
-                transform: [{ scale: scaleAnim }]
-              }
+                transform: [{ scale: scaleAnim }],
+              },
             ]}
           >
             <View style={styles.successIconContainer}>
               <Check size={32} color="#FFFFFF" />
             </View>
-            <Text style={styles.successTitle}>Group Created!</Text>
+            <Text style={styles.successTitle}>Joined Successfully!</Text>
             <Text style={styles.successMessage}>
-              Your group has been created successfully.
+              You have joined "{joinedGroupName}" group.
             </Text>
           </Animated.View>
         </View>
-      </Modal>
+      )}
     </ScrollView>
   );
 }
@@ -209,6 +192,7 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    elevation: 2,
   },
   title: {
     fontSize: 24,
@@ -223,48 +207,56 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '500',
+    color: '#4B5563',
     marginBottom: 8,
   },
   input: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D1D5DB',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    color: '#1F2937',
+    textAlign: 'center',
+    letterSpacing: 4,
   },
-  hint: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#6B7280',
-    fontStyle: 'italic',
-  },
-  button: {
-    backgroundColor: '#1E40AF',
-    padding: 16,
+  errorContainer: {
+    backgroundColor: '#FEE2E2',
     borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
+  },
+  joinButton: {
+    backgroundColor: '#10B981',
+    borderRadius: 8,
+    padding: 16,
     alignItems: 'center',
+    marginTop: 10,
   },
-  buttonDisabled: {
-    opacity: 0.7,
+  disabledButton: {
+    backgroundColor: '#6EE7B7',
   },
-  buttonText: {
+  joinButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  error: {
-    color: '#DC2626',
-    padding: 20,
-    textAlign: 'center',
-  },
   modalOverlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1000,
   },
   successModal: {
     backgroundColor: '#FFFFFF',
@@ -273,16 +265,12 @@ const styles = StyleSheet.create({
     width: '80%',
     alignItems: 'center',
     elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
   },
   successIconContainer: {
+    backgroundColor: '#10B981',
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#10B981',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -295,7 +283,7 @@ const styles = StyleSheet.create({
   },
   successMessage: {
     fontSize: 16,
-    color: '#6B7280',
+    color: '#4B5563',
     textAlign: 'center',
   },
 });
