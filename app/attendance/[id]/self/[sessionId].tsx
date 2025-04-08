@@ -112,12 +112,17 @@ export default function SelfAttendanceSessionScreen() {
       const formattedStudents = members.map(member => ({
         id: member.profiles.id,
         name: member.profiles.name,
-        roll_number: member.profiles.roll_number,
+        roll_number: member.profiles.roll_number || '',
         attendance_status: recordMap.get(member.profiles.id) || null,
       }));
 
-      setStudents(formattedStudents);
-      return formattedStudents; // Return for promise chaining
+      // Sort students by roll number
+      const sortedStudents = formattedStudents.sort((a, b) => {
+        return a.roll_number.localeCompare(b.roll_number, undefined, { numeric: true });
+      });
+
+      setStudents(sortedStudents);
+      return sortedStudents; // Return for promise chaining
     } catch (error) {
       setError(error.message);
       throw error; // Rethrow for promise chaining
