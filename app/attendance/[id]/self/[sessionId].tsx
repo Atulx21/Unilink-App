@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Check, X, TriangleAlert as AlertTriangle } from 'lucide-react-native';
@@ -19,27 +19,25 @@ export default function SelfAttendanceSessionScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [markingAttendance, setMarkingAttendance] = useState(false);
-  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
-
+  const [refreshing, setRefreshing] = useState(false);
+  
   useEffect(() => {
     fetchStudents();
     getCurrentUser();
     setupRealTimeUpdates();
-    
-    // Set up periodic refresh every 10 seconds as a fallback
-    const interval = setInterval(() => {
-      console.log('Performing periodic refresh...');
-      fetchStudents();
-    }, 10000);
-    
-    setRefreshInterval(interval);
-    
-    return () => {
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-      }
-    };
+    // Removed the periodic refresh interval
   }, [sessionId]);
+  
+  // Add manual refresh function
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchStudents()
+      .then(() => setRefreshing(false))
+      .catch((error) => {
+        console.error('Error refreshing:', error);
+        setRefreshing(false);
+      });
+  };
   
   const setupRealTimeUpdates = () => {
     // Set up real-time subscription to attendance_records table
@@ -57,7 +55,7 @@ export default function SelfAttendanceSessionScreen() {
       .subscribe((status) => {
         console.log('Realtime subscription status:', status);
         if (status !== 'SUBSCRIBED') {
-          console.warn('Failed to subscribe to real-time updates. Falling back to interval refresh.');
+          console.warn('Failed to subscribe to real-time updates. Please use manual refresh.');
         }
       });
       
@@ -119,8 +117,10 @@ export default function SelfAttendanceSessionScreen() {
       }));
 
       setStudents(formattedStudents);
+      return formattedStudents; // Return for promise chaining
     } catch (error) {
       setError(error.message);
+      throw error; // Rethrow for promise chaining
     } finally {
       setLoading(false);
     }
@@ -338,6 +338,14 @@ export default function SelfAttendanceSessionScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={["#1E40AF"]}
+            tintColor="#1E40AF"
+          />
+        }
       />
 
       <View style={styles.footer}>
@@ -365,6 +373,26 @@ export default function SelfAttendanceSessionScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Add these new styles
+  header: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    paddingTop: 60,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  rotating: {
+    opacity: 0.5,
+  },
+  // Keep your existing styles
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',
