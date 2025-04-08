@@ -44,7 +44,7 @@ export default function AcademicScreen() {
   
       if (profileError) {
         console.error('Profile error:', profileError);
-        throw profileError;
+        throw profileError;  // This throws the raw error object
       }
   
       setUserRole(profile?.role);
@@ -116,8 +116,8 @@ export default function AcademicScreen() {
         setGroups(academicGroups);
       }
     } catch (error: any) {
-      console.error('Fetch error:', error);
-      setError(error.message);
+      // You should format the error message consistently here
+      setError(typeof error === 'object' ? error.message : String(error));
     } finally {
       setLoading(false);
       setRefreshing(false);

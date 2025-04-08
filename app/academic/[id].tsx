@@ -75,6 +75,7 @@ export default function AcademicGroupDashboard() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1E40AF" />
+        <Text style={styles.loadingText}>Loading group details...</Text>
       </View>
     );
   }

@@ -1,60 +1,213 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput, RefreshControl, ActivityIndicator } from 'react-native';
 import { Search, Bell, MessageSquare, Heart, MessageCircle, Share2 } from 'lucide-react-native';
+import { supabase } from '@/lib/supabase';
+import { router } from 'expo-router';
+import { format } from 'date-fns';
 
-const SAMPLE_POSTS = [
-  {
-    id: '1',
-    user: {
-      name: 'John Doe',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
-      role: 'Student',
-    },
-    content: 'Just finished my final project presentation! 🎉',
-    image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1471&q=80',
-    likes: 42,
-    comments: 8,
-  },
-  {
-    id: '2',
-    user: {
-      name: 'Jane Smith',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
-      role: 'Teacher',
-    },
-    content: 'Exciting guest lecture on AI and Machine Learning tomorrow! Don\'t miss it! 📚',
-    likes: 56,
-    comments: 12,
-  },
-];
+// Define the Post interface
+interface Post {
+  id: string;
+  content: string;
+  image_url?: string;
+  created_at: string;
+  author_id: string;
+  author_name: string;
+  author_avatar?: string;
+  likes_count: number;
+  comments_count: number;
+  user_has_liked: boolean;
+}
 
 export default function HomeScreen() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  const renderPost = ({ item }) => (
+  useEffect(() => {
+    fetchCurrentUser();
+    fetchPosts();
+  }, []);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profile) {
+        setCurrentUserId(profile.id);
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+  };
+
+  const fetchPosts = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch posts with author information
+      const { data: postsData, error: postsError } = await supabase
+        .from('posts')
+        .select(`
+          id,
+          content,
+          image_url,
+          created_at,
+          author_id,
+          profiles(name, avatar_url)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (postsError) throw postsError;
+
+      // Get likes and comments counts for each post
+      const postsWithCounts = await Promise.all(postsData.map(async (post) => {
+        // Get likes count
+        const { count: likesCount } = await supabase
+          .from('post_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('post_id', post.id);
+        
+        // Get comments count
+        const { count: commentsCount } = await supabase
+          .from('post_comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('post_id', post.id);
+        
+        // Check if current user has liked this post
+        let userHasLiked = false;
+        if (currentUserId) {
+          const { data: userLike } = await supabase
+            .from('post_likes')
+            .select('id')
+            .eq('post_id', post.id)
+            .eq('user_id', currentUserId)
+            .single();
+          
+          userHasLiked = !!userLike;
+        }
+
+        return {
+          id: post.id,
+          content: post.content,
+          image_url: post.image_url,
+          created_at: post.created_at,
+          author_id: post.author_id,
+          author_name: post.profiles?.name || 'Unknown',
+          author_avatar: post.profiles?.avatar_url,
+          likes_count: likesCount || 0,
+          comments_count: commentsCount || 0,
+          user_has_liked: userHasLiked
+        };
+      }));
+
+      setPosts(postsWithCounts);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchPosts();
+  };
+
+  const handleLikePost = async (postId: string, isLiked: boolean) => {
+    if (!currentUserId) return;
+    
+    try {
+      if (isLiked) {
+        // Unlike post
+        await supabase
+          .from('post_likes')
+          .delete()
+          .eq('post_id', postId)
+          .eq('user_id', currentUserId);
+      } else {
+        // Like post
+        await supabase
+          .from('post_likes')
+          .insert({
+            post_id: postId,
+            user_id: currentUserId
+          });
+      }
+      
+      // Update UI
+      setPosts(posts.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            likes_count: isLiked ? post.likes_count - 1 : post.likes_count + 1,
+            user_has_liked: !isLiked
+          };
+        }
+        return post;
+      }));
+    } catch (error) {
+      console.error('Error liking/unliking post:', error);
+    }
+  };
+
+  const navigateToComments = (postId: string) => {
+    router.push(`/post/${postId}/comments`);
+  };
+
+  const navigateToProfile = (authorId: string) => {
+    // Navigate to profile page
+    // This would need to be implemented based on your app's navigation structure
+  };
+
+  const renderPost = ({ item }: { item: Post }) => (
     <View style={styles.post}>
-      <View style={styles.postHeader}>
-        <Image source={{ uri: item.user.avatar }} style={styles.avatar} />
+      <TouchableOpacity 
+        style={styles.postHeader}
+        onPress={() => navigateToProfile(item.author_id)}
+      >
+        <Image 
+          source={{ 
+            uri: item.author_avatar || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y' 
+          }} 
+          style={styles.avatar} 
+        />
         <View style={styles.userInfo}>
-          <Text style={styles.userName}>{item.user.name}</Text>
-          <Text style={styles.userRole}>{item.user.role}</Text>
+          <Text style={styles.userName}>{item.author_name}</Text>
+          <Text style={styles.postDate}>{format(new Date(item.created_at), 'MMM d, yyyy')}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       <Text style={styles.postContent}>{item.content}</Text>
 
-      {item.image && (
-        <Image source={{ uri: item.image }} style={styles.postImage} />
+      {item.image_url && (
+        <Image source={{ uri: item.image_url }} style={styles.postImage} />
       )}
 
       <View style={styles.postActions}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Heart size={24} color="#6B7280" />
-          <Text style={styles.actionText}>{item.likes}</Text>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => handleLikePost(item.id, item.user_has_liked)}
+        >
+          <Heart size={24} color={item.user_has_liked ? "#EF4444" : "#6B7280"} fill={item.user_has_liked ? "#EF4444" : "none"} />
+          <Text style={styles.actionText}>{item.likes_count}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => navigateToComments(item.id)}
+        >
           <MessageCircle size={24} color="#6B7280" />
-          <Text style={styles.actionText}>{item.comments}</Text>
+          <Text style={styles.actionText}>{item.comments_count}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton}>
           <Share2 size={24} color="#6B7280" />
@@ -87,13 +240,44 @@ export default function HomeScreen() {
         />
       </View>
 
-      <FlatList
-        data={SAMPLE_POSTS}
-        renderItem={renderPost}
-        keyExtractor={item => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      />
+      {loading && !refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1E40AF" />
+        </View>
+      ) : (
+        <FlatList
+          data={posts}
+          renderItem={renderPost}
+          keyExtractor={item => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={["#1E40AF"]}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No posts yet</Text>
+              <TouchableOpacity 
+                style={styles.createPostButton}
+                onPress={() => router.push('/post/create')}
+              >
+                <Text style={styles.createPostButtonText}>Create a post</Text>
+              </TouchableOpacity>
+            </View>
+          }
+        />
+      )}
+
+      <TouchableOpacity 
+        style={styles.fab}
+        onPress={() => router.push('/post/create')}
+      >
+        <Text style={styles.fabText}>+</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -101,18 +285,16 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    justifyContent: 'space-between',
     paddingTop: 60,
-    paddingBottom: 20,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
   },
   appName: {
     fontSize: 24,
@@ -121,41 +303,36 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 16,
   },
   iconButton: {
-    padding: 8,
+    marginLeft: 16,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    margin: 16,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
     marginLeft: 8,
     fontSize: 16,
+    color: '#1F2937',
   },
   content: {
     padding: 16,
   },
   post: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
   },
@@ -168,6 +345,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: '#E5E7EB',
   },
   userInfo: {
     marginLeft: 12,
@@ -181,11 +359,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
   },
+  postDate: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
   postContent: {
     fontSize: 16,
     color: '#1F2937',
-    lineHeight: 24,
     marginBottom: 12,
+    lineHeight: 22,
   },
   postImage: {
     width: '100%',
@@ -195,15 +377,63 @@ const styles = StyleSheet.create({
   },
   postActions: {
     flexDirection: 'row',
-    gap: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 12,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    marginRight: 24,
   },
   actionText: {
+    marginLeft: 4,
     fontSize: 14,
     color: '#6B7280',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  createPostButton: {
+    backgroundColor: '#1E40AF',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  createPostButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#1E40AF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  fabText: {
+    fontSize: 24,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
 });

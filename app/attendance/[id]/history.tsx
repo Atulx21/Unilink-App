@@ -61,11 +61,12 @@ export default function AttendanceHistoryScreen() {
         .select(`
           id,
           date,
-          type
+          type,
+          created_at
         `)
         .eq('group_id', id)
         .eq('status', 'completed')
-        .order('date', { ascending: false });
+        .order('created_at', { ascending: false }); // Use created_at for more reliable ordering
 
       if (sessionsError) throw sessionsError;
 

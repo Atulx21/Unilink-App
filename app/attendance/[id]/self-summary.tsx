@@ -95,6 +95,17 @@ export default function SelfAttendanceSummaryScreen() {
           groupedStats[record.status].push(student);
         });
 
+        // Sort each category by roll number
+        const sortByRollNumber = (a: Student, b: Student) => {
+          const rollA = a.roll_number || 'N/A';
+          const rollB = b.roll_number || 'N/A';
+          return rollA.localeCompare(rollB, undefined, { numeric: true });
+        };
+
+        groupedStats.present.sort(sortByRollNumber);
+        groupedStats.absent.sort(sortByRollNumber);
+        groupedStats.penalty.sort(sortByRollNumber);
+
         setStats(groupedStats);
       }
     } catch (error) {
