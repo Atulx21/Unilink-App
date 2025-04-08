@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image, Alert, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 
 interface Profile {
   name: string;
@@ -42,15 +43,79 @@ export default function EditProfileScreen() {
   };
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    });
+    try {
+      // Request permissions first
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'We need access to your photos to upload an image.');
+        return;
+      }
+  
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+  
+      if (!result.canceled && profile) {
+        const imageUrl = await uploadProfileImage(result.assets[0].uri);
+        setProfile({ ...profile, avatar_url: imageUrl });
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to upload profile image. Please try again.');
+    }
+  };
 
-    if (!result.canceled && profile) {
-      setProfile({ ...profile, avatar_url: result.assets[0].uri });
+  const uploadProfileImage = async (uri: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+  
+      // Generate a unique file name
+      const fileExt = uri.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+  
+      // For iOS, we need to handle file:// protocol
+      const fileUri = Platform.OS === 'ios' ? uri.replace('file://', '') : uri;
+  
+      // Create form data
+      const formData = new FormData();
+      formData.append('file', {
+        uri: fileUri,
+        name: fileName,
+        type: `image/${fileExt}`
+      } as any);
+  
+      // Delete old profile image if exists
+      if (profile?.avatar_url) {
+        const oldPath = profile.avatar_url.split('/').slice(-2).join('/');
+        await supabase.storage
+          .from('profile_images')
+          .remove([oldPath]);
+      }
+  
+      // Upload to Supabase storage
+      const { data, error: uploadError } = await supabase.storage
+        .from('profile_images')
+        .upload(filePath, formData, {
+          contentType: `image/${fileExt}`,
+          upsert: true
+        });
+  
+      if (uploadError) throw uploadError;
+  
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile_images')
+        .getPublicUrl(filePath);
+  
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading profile image:', error);
+      throw error;
     }
   };
 
