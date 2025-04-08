@@ -78,8 +78,14 @@ export default function EditProfileScreen() {
       const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
   
-      // For iOS, we need to handle file:// protocol
+      // For iOS, handle file:// protocol
       const fileUri = Platform.OS === 'ios' ? uri.replace('file://', '') : uri;
+  
+      // Read the file
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist');
+      }
   
       // Create form data
       const formData = new FormData();
@@ -111,6 +117,14 @@ export default function EditProfileScreen() {
       const { data: { publicUrl } } = supabase.storage
         .from('profile_images')
         .getPublicUrl(filePath);
+  
+      // Update profile with new avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: filePath })
+        .eq('user_id', user.id);
+  
+      if (updateError) throw updateError;
   
       return publicUrl;
     } catch (error) {

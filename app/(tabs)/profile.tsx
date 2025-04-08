@@ -89,6 +89,15 @@ export default function ProfileScreen() {
         .single();
 
       if (profileError) throw profileError;
+
+      // Get the public URL for the profile image
+      if (profile.avatar_url) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('profile_images')
+          .getPublicUrl(profile.avatar_url);
+        profile.avatar_url = publicUrl;
+      }
+
       setProfile(profile);
       setProfileId(profile.id);
 
