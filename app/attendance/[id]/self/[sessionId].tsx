@@ -171,8 +171,8 @@ export default function SelfAttendanceSessionScreen() {
         if (recordsError) throw recordsError;
       }
 
-      // Navigate to the summary page
-      router.replace(`/attendance/${id}/summary?sessionId=${sessionId}`);
+      // Navigate to the self-summary page instead of the regular summary page
+      router.replace(`/attendance/${id}/self-summary?sessionId=${sessionId}`);
     } catch (error) {
       console.error('Error ending session:', error);
       setError(error.message);
