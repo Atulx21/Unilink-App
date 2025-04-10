@@ -91,15 +91,19 @@ export default function ProfileScreen() {
 
       if (profileError) throw profileError;
 
-      // Get the public URL for the profile image
-      if (profile.avatar_url) {
-        const { data: { publicUrl } } = supabase.storage
+      // Fix: Properly handle the avatar_url
+      let profileWithImage = { ...profile };
+      
+      // Get the public URL for the profile image if it exists
+      if (profile.avatar_url && !profile.avatar_url.startsWith('http')) {
+        const { data } = supabase.storage
           .from('profile_images')
           .getPublicUrl(profile.avatar_url);
-        profile.avatar_url = publicUrl;
+        
+        profileWithImage.avatar_url = data.publicUrl;
       }
 
-      setProfile(profile);
+      setProfile(profileWithImage);
       setProfileId(profile.id);
 
       // Fetch real posts
