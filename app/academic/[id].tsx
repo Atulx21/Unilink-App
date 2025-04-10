@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Book, Award, FileText, MessageSquare, Users, ArrowLeft, Settings } from 'lucide-react-native';
+// Remove the duplicate import below
+// import { FileText } from 'lucide-react-native';
 
 interface Group {
   id: string;
