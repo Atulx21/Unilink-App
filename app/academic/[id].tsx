@@ -25,6 +25,16 @@ export default function AcademicGroupDashboard() {
     fetchGroupDetails();
   }, [id]);
 
+  // Add the navigateToAssignments function inside the component
+  const navigateToAssignments = () => {
+    try {
+      router.push(`/academic/${id}/assignments`);
+    } catch (error) {
+      console.error('Navigation error:', error);
+      Alert.alert('Navigation Error', 'Could not open assignments. Please try again.');
+    }
+  };
+
   const fetchGroupDetails = async () => {
     try {
       setLoading(true);
@@ -158,10 +168,11 @@ export default function AcademicGroupDashboard() {
           </View>
         </TouchableOpacity>
 
+        {/* TouchableOpacity for assignments using the navigateToAssignments function */}
         <TouchableOpacity 
           style={[styles.card, { borderLeftColor: '#D97706' }]}
           activeOpacity={0.7}
-          onPress={() => router.push(`/academic/${id}/assignments`)}
+          onPress={navigateToAssignments}
         >
           <View style={[styles.cardIcon, { backgroundColor: '#FEF3C7' }]}>
             <FileText size={24} color="#D97706" />
