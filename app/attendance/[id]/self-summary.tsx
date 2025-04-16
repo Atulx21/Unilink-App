@@ -33,10 +33,32 @@ export default function SelfAttendanceSummaryScreen() {
     type: string;
     groupName: string;
   } | null>(null);
+  const [isTeacher, setIsTeacher] = useState(false);
 
   useEffect(() => {
     loadAttendanceData();
+    checkUserRole();
   }, []);
+
+  const checkUserRole = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get the user's profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profile && profile.role === 'teacher') {
+        setIsTeacher(true);
+      }
+    } catch (error) {
+      console.error('Error checking user role:', error);
+    }
+  };
 
   const loadAttendanceData = async () => {
     try {
@@ -173,6 +195,45 @@ export default function SelfAttendanceSummaryScreen() {
     }
   };
 
+  // Add new function to change status from absent to present
+  // Update the markAsPresent function to show a confirmation dialog
+  const markAsPresent = async (studentId: string, studentName: string) => {
+    // Show confirmation dialog first
+    Alert.alert(
+      'Confirm Status Change',
+      `Are you sure you want to mark ${studentName} as present?`,
+      [
+        { 
+          text: 'Cancel', 
+          style: 'cancel' 
+        },
+        { 
+          text: 'Mark Present', 
+          onPress: async () => {
+            try {
+              // Update the student's attendance status to present
+              const { error: updateError } = await supabase
+                .from('attendance_records')
+                .update({ status: 'present' })
+                .eq('session_id', sessionId)
+                .eq('student_id', studentId);
+                
+              if (updateError) throw updateError;
+              
+              // Refresh the data
+              await loadAttendanceData();
+              
+              Alert.alert('Success', `${studentName} has been marked as present`);
+            } catch (error) {
+              console.error('Error marking present:', error);
+              Alert.alert('Error', 'Failed to mark student as present');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderStudent = ({ item }: { item: Student }) => (
     <View style={styles.studentCard}>
       <View style={styles.studentInfo}>
@@ -186,19 +247,32 @@ export default function SelfAttendanceSummaryScreen() {
               <Check size={16} color="#FFFFFF" />
               <Text style={styles.statusText}>Present</Text>
             </View>
-            <TouchableOpacity 
-              style={styles.penaltyButton}
-              onPress={() => markAsPenalty(item.id)}
-            >
-              <AlertTriangle size={14} color="#D97706" />
-              <Text style={styles.penaltyButtonText}>Mark Penalty</Text>
-            </TouchableOpacity>
+            {isTeacher && (
+              <TouchableOpacity 
+                style={styles.penaltyButton}
+                onPress={() => markAsPenalty(item.id)}
+              >
+                <AlertTriangle size={14} color="#D97706" />
+                <Text style={styles.penaltyButtonText}>Mark Penalty</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         {item.attendance_status === 'absent' && (
-          <View style={[styles.statusBadge, styles.absentBadge]}>
-            <X size={16} color="#FFFFFF" />
-            <Text style={styles.statusText}>Absent</Text>
+          <View style={styles.actionContainer}>
+            <View style={[styles.statusBadge, styles.absentBadge]}>
+              <X size={16} color="#FFFFFF" />
+              <Text style={styles.statusText}>Absent</Text>
+            </View>
+            {isTeacher && (
+              <TouchableOpacity 
+                style={styles.presentButton}
+                onPress={() => markAsPresent(item.id, item.name)}
+              >
+                <Check size={14} color="#059669" />
+                <Text style={styles.presentButtonText}>Mark Present</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         {item.attendance_status === 'penalty' && (
