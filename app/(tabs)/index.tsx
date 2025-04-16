@@ -25,11 +25,67 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     fetchCurrentUser();
     fetchPosts();
   }, []);
+
+  // Add search functionality
+  useEffect(() => {
+    if (searchQuery.trim().length > 0) {
+      searchUsers(searchQuery);
+    } else {
+      setSearchResults([]);
+      setIsSearching(false);
+    }
+  }, [searchQuery]);
+
+  const searchUsers = async (query: string) => {
+    if (query.trim().length === 0) return;
+    
+    try {
+      setIsSearching(true);
+      
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, name, role, avatar_url, institute_name, department')
+        .ilike('name', `%${query}%`)
+        .limit(10);
+      
+      if (error) throw error;
+      
+      // Get public URLs for avatar images
+      const usersWithAvatars = await Promise.all(data.map(async (user) => {
+        if (user.avatar_url && !user.avatar_url.startsWith('http')) {
+          const { data } = supabase.storage
+            .from('profile_images')
+            .getPublicUrl(user.avatar_url);
+          
+          return {
+            ...user,
+            avatar_url: data.publicUrl
+          };
+        }
+        return user;
+      }));
+      
+      setSearchResults(usersWithAvatars);
+    } catch (error) {
+      console.error('Error searching users:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const navigateToUserProfile = (userId: string) => {
+    router.push(`/profile/${userId}`);
+    // Clear search after navigation
+    setSearchQuery('');
+    setSearchResults([]);
+  };
 
   const fetchCurrentUser = async () => {
     try {
@@ -166,8 +222,7 @@ export default function HomeScreen() {
   };
 
   const navigateToProfile = (authorId: string) => {
-    // Navigate to profile page
-    // This would need to be implemented based on your app's navigation structure
+    router.push(`/profile/${authorId}`);
   };
 
   const renderPost = ({ item }: { item: Post }) => (
@@ -216,6 +271,26 @@ export default function HomeScreen() {
     </View>
   );
 
+  const renderSearchResult = ({ item }: { item: any }) => (
+    <TouchableOpacity 
+      style={styles.searchResultItem}
+      onPress={() => navigateToUserProfile(item.id)}
+    >
+      <Image 
+        source={{ 
+          uri: item.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y' 
+        }} 
+        style={styles.searchResultAvatar} 
+      />
+      <View style={styles.searchResultInfo}>
+        <Text style={styles.searchResultName}>{item.name}</Text>
+        <Text style={styles.searchResultDetails}>
+          {item.role === 'student' ? 'Student' : 'Teacher'} • {item.institute_name}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -238,38 +313,67 @@ export default function HomeScreen() {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity 
+            onPress={() => setSearchQuery('')}
+            style={styles.clearSearch}
+          >
+            <Text style={styles.clearSearchText}>✕</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1E40AF" />
-        </View>
-      ) : (
-        <FlatList
-          data={posts}
-          renderItem={renderPost}
-          keyExtractor={item => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={["#1E40AF"]}
+      {/* Show search results if searching */}
+      {searchQuery.length > 0 && (
+        <View style={styles.searchResultsContainer}>
+          {isSearching ? (
+            <ActivityIndicator size="small" color="#1E40AF" style={styles.searchingIndicator} />
+          ) : searchResults.length > 0 ? (
+            <FlatList
+              data={searchResults}
+              renderItem={renderSearchResult}
+              keyExtractor={item => item.id}
+              style={styles.searchResultsList}
             />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No posts yet</Text>
-              <TouchableOpacity 
-                style={styles.createPostButton}
-                onPress={() => router.push('/post/create')}
-              >
-                <Text style={styles.createPostButtonText}>Create a post</Text>
-              </TouchableOpacity>
-            </View>
-          }
-        />
+          ) : (
+            <Text style={styles.noResultsText}>No users found</Text>
+          )}
+        </View>
+      )}
+
+      {/* Show posts only when not searching */}
+      {searchQuery.length === 0 && (
+        loading && !refreshing ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#1E40AF" />
+          </View>
+        ) : (
+          <FlatList
+            data={posts}
+            renderItem={renderPost}
+            keyExtractor={item => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.content}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={["#1E40AF"]}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No posts yet</Text>
+                <TouchableOpacity 
+                  style={styles.createPostButton}
+                  onPress={() => router.push('/post/create')}
+                >
+                  <Text style={styles.createPostButtonText}>Create a post</Text>
+                </TouchableOpacity>
+              </View>
+            }
+          />
+        )
       )}
 
       <TouchableOpacity 
@@ -435,5 +539,66 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#FFFFFF',
     fontWeight: 'bold',
+  },
+  // Update these styles
+  searchResultsContainer: {
+    position: 'absolute',
+    top: 130, // Increased from 120 to prevent overlap
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    zIndex: 10,
+    maxHeight: 300,
+  },
+  searchResultsList: {
+    padding: 8,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  searchResultAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E5E7EB',
+  },
+  searchResultInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  searchResultName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  searchResultDetails: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2, // Added spacing between name and details
+  },
+  noResultsText: {
+    padding: 16,
+    textAlign: 'center',
+    color: '#6B7280',
+  },
+  searchingIndicator: {
+    padding: 16,
+  },
+  clearSearch: {
+    padding: 8,
+  },
+  clearSearchText: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  // Add this new style for spacing when search results are showing
+  searchResultsSpacer: {
+    flex: 1,
   },
 });

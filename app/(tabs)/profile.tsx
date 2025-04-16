@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Dimensions,
-  Animated
+  Animated,
+  Alert
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -89,7 +90,20 @@ export default function ProfileScreen() {
         .single();
 
       if (profileError) throw profileError;
-      setProfile(profile);
+
+      // Fix: Properly handle the avatar_url
+      let profileWithImage = { ...profile };
+      
+      // Get the public URL for the profile image if it exists
+      if (profile.avatar_url && !profile.avatar_url.startsWith('http')) {
+        const { data } = supabase.storage
+          .from('profile_images')
+          .getPublicUrl(profile.avatar_url);
+        
+        profileWithImage.avatar_url = data.publicUrl;
+      }
+
+      setProfile(profileWithImage);
       setProfileId(profile.id);
 
       // Fetch real posts
@@ -220,6 +234,33 @@ export default function ProfileScreen() {
     router.push(`/post/${postId}/comments`);
   };
 
+  // Add logout function
+  const handleLogout = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Logout",
+          onPress: async () => {
+            try {
+              const { error } = await supabase.auth.signOut();
+              if (error) throw error;
+              router.replace('/auth/login');
+            } catch (error) {
+              console.error('Error logging out:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -347,11 +388,12 @@ export default function ProfileScreen() {
             <Text style={styles.quickLinkText}>Results</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.quickLink} onPress={() => router.push('/settings')}>
-            <View style={[styles.quickLinkIcon, { backgroundColor: '#F3F4F6' }]}>
-              <Settings size={20} color="#4B5563" />
+          {/* Replace Settings with Logout */}
+          <TouchableOpacity style={styles.quickLink} onPress={handleLogout}>
+            <View style={[styles.quickLinkIcon, { backgroundColor: '#FEE2E2' }]}>
+              <LogOut size={20} color="#DC2626" />
             </View>
-            <Text style={styles.quickLinkText}>Settings</Text>
+            <Text style={styles.quickLinkText}>Logout</Text>
           </TouchableOpacity>
         </View>
 
