@@ -133,7 +133,8 @@ export default function MarksScreen() {
               title,
               description,
               max_marks,
-              created_at
+              created_at,
+              group_id
             )
           `)
           .eq('student_id', profile.id)
@@ -144,15 +145,17 @@ export default function MarksScreen() {
           throw new Error('Could not fetch your marks');
         }
         
-        // Format student marks for display
-        const formattedMarks = studentMarks?.map(item => ({
-          id: item.id,
-          title: item.mark.title,
-          description: item.mark.description,
-          max_marks: item.mark.max_marks,
-          marks: item.marks,
-          created_at: item.mark.created_at
-        })) || [];
+        // Filter out any null marks and map to the expected format
+        const formattedMarks = studentMarks
+          ?.filter(item => item.mark !== null)
+          .map(item => ({
+            id: item.id,
+            title: item.mark?.title || 'Untitled Mark',
+            description: item.mark?.description || '',
+            max_marks: item.mark?.max_marks || 0,
+            marks: item.marks || 0,
+            created_at: item.mark?.created_at || new Date().toISOString()
+          })) || [];
         
         setMarks(formattedMarks);
       }
@@ -280,6 +283,11 @@ export default function MarksScreen() {
   };
 
   const renderStudentMarkItem = ({ item }: { item: StudentMark }) => {
+    // Add safety checks to prevent errors
+    if (!item || item.max_marks === undefined || item.max_marks === 0) {
+      return null; // Don't render invalid items
+    }
+    
     const percentage = (item.marks / item.max_marks) * 100;
     let gradeColor = '#DC2626'; // Red for low marks
     
@@ -293,8 +301,8 @@ export default function MarksScreen() {
     
     return (
       <View style={styles.markCard}>
-        <Text style={styles.markTitle}>{item.title}</Text>
-        <Text style={styles.markDescription}>{item.description}</Text>
+        <Text style={styles.markTitle}>{item.title || 'Untitled Mark'}</Text>
+        <Text style={styles.markDescription}>{item.description || ''}</Text>
         
         <View style={styles.markScoreContainer}>
           <View style={styles.markScoreBox}>
@@ -309,7 +317,7 @@ export default function MarksScreen() {
         </View>
         
         <Text style={styles.markDate}>
-          {format(new Date(item.created_at), 'MMM d, yyyy')}
+          {format(new Date(item.created_at || new Date()), 'MMM d, yyyy')}
         </Text>
       </View>
     );
