@@ -63,11 +63,18 @@ export default function CreateMarkScreen() {
         .map(member => ({
           id: member.profiles.id,
           name: member.profiles.name,
-          roll_number: member.profiles.roll_number,
+          roll_number: member.profiles.roll_number || 'N/A',
           marks: '0'
         }));
       
-      setStudents(studentMembers);
+      // Sort students by roll number
+      const sortedStudents = studentMembers.sort((a, b) => {
+        const rollA = a.roll_number || 'N/A';
+        const rollB = b.roll_number || 'N/A';
+        return rollA.localeCompare(rollB, undefined, { numeric: true });
+      });
+      
+      setStudents(sortedStudents);
     } catch (error) {
       console.error('Fetch students error:', error);
       setError(error.message || 'An error occurred while fetching students');
