@@ -91,7 +91,25 @@ export default function AcademicMembersScreen() {
       
       // Filter out any members with null profiles (in case of data inconsistency)
       const validMembers = members?.filter(m => m.profile) || [];
-      setMembers(validMembers);
+      
+      // Sort members: teachers first, then students by roll number
+      const sortedMembers = validMembers.sort((a, b) => {
+        // First sort by role (teachers first)
+        if (a.profile.role !== b.profile.role) {
+          return a.profile.role === 'teacher' ? -1 : 1;
+        }
+        
+        // Then sort students by roll number
+        if (a.profile.role === 'student' && b.profile.role === 'student') {
+          const rollA = a.profile.roll_number || 'N/A';
+          const rollB = b.profile.roll_number || 'N/A';
+          return rollA.localeCompare(rollB, undefined, { numeric: true });
+        }
+        
+        return 0;
+      });
+      
+      setMembers(sortedMembers);
       
       // Calculate stats
       const teacherCount = validMembers.filter(m => m.profile.role === 'teacher').length || 0;
