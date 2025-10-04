@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Check, X, TriangleAlert as AlertTriangle } from 'lucide-react-native';
@@ -17,25 +17,69 @@ export default function SelfAttendanceSessionScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [markingAttendance, setMarkingAttendance] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
   useEffect(() => {
     fetchStudents();
+    getCurrentUser();
+    setupRealTimeUpdates();
+    // Removed the periodic refresh interval
+  }, [sessionId]);
+  
+  // Add manual refresh function
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchStudents()
+      .then(() => setRefreshing(false))
+      .catch((error) => {
+        console.error('Error refreshing:', error);
+        setRefreshing(false);
+      });
+  };
+  
+  const setupRealTimeUpdates = () => {
+    // Set up real-time subscription to attendance_records table
     const subscription = supabase
-      .channel('attendance_records')
+      .channel(`attendance_records_${sessionId}`)
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
         schema: 'public',
         table: 'attendance_records',
         filter: `session_id=eq.${sessionId}`,
-      }, () => {
+      }, (payload) => {
+        console.log('Attendance record changed, refreshing data...', payload);
         fetchStudents();
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+        if (status !== 'SUBSCRIBED') {
+          console.warn('Failed to subscribe to real-time updates. Please use manual refresh.');
+        }
+      });
+      
+    return subscription;
+  };
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [sessionId]);
+  const getCurrentUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+        
+      if (profile) {
+        setCurrentUserId(profile.id);
+      }
+    } catch (error) {
+      console.error('Error getting current user:', error);
+    }
+  };
 
   const fetchStudents = async () => {
     try {
@@ -68,13 +112,20 @@ export default function SelfAttendanceSessionScreen() {
       const formattedStudents = members.map(member => ({
         id: member.profiles.id,
         name: member.profiles.name,
-        roll_number: member.profiles.roll_number,
+        roll_number: member.profiles.roll_number || '',
         attendance_status: recordMap.get(member.profiles.id) || null,
       }));
 
-      setStudents(formattedStudents);
+      // Sort students by roll number
+      const sortedStudents = formattedStudents.sort((a, b) => {
+        return a.roll_number.localeCompare(b.roll_number, undefined, { numeric: true });
+      });
+
+      setStudents(sortedStudents);
+      return sortedStudents; // Return for promise chaining
     } catch (error) {
       setError(error.message);
+      throw error; // Rethrow for promise chaining
     } finally {
       setLoading(false);
     }
@@ -125,8 +176,8 @@ export default function SelfAttendanceSessionScreen() {
         if (recordsError) throw recordsError;
       }
 
-      // Navigate to the summary page
-      router.replace(`/attendance/${id}/summary?sessionId=${sessionId}`);
+      // Navigate to the self-summary page instead of the regular summary page
+      router.replace(`/attendance/${id}/self-summary?sessionId=${sessionId}`);
     } catch (error) {
       console.error('Error ending session:', error);
       setError(error.message);
@@ -135,33 +186,119 @@ export default function SelfAttendanceSessionScreen() {
     }
   };
 
-  const renderStudent = ({ item }: { item: Student }) => (
-    <View style={styles.studentCard}>
-      <View style={styles.studentInfo}>
-        <Text style={styles.studentName}>{item.name}</Text>
-        <Text style={styles.rollNumber}>Roll No: {item.roll_number}</Text>
-      </View>
-      <View style={styles.statusContainer}>
-        {item.attendance_status ? (
-          <View style={[
-            styles.statusTag,
-            item.attendance_status === 'present' ? styles.presentTag : styles.absentTag,
-          ]}>
-            <Text style={[
-              styles.statusText,
-              item.attendance_status === 'present' ? styles.presentText : styles.absentText,
+  const renderStudent = ({ item }: { item: Student }) => {
+    const isCurrentUser = item.id === currentUserId;
+    
+    return (
+      <View style={styles.studentCard}>
+        <View style={styles.studentInfo}>
+          <Text style={styles.studentName}>{item.name} {isCurrentUser ? '(You)' : ''}</Text>
+          <Text style={styles.rollNumber}>Roll No: {item.roll_number}</Text>
+        </View>
+        <View style={styles.statusContainer}>
+          {item.attendance_status ? (
+            <View style={[
+              styles.statusTag,
+              item.attendance_status === 'present' ? styles.presentTag : styles.absentTag,
             ]}>
-              {item.attendance_status === 'present' ? 'Present' : 'Absent'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.pendingTag}>
-            <Text style={styles.pendingText}>Pending</Text>
-          </View>
-        )}
+              <Text style={[
+                styles.statusText,
+                item.attendance_status === 'present' ? styles.presentText : styles.absentText,
+              ]}>
+                {item.attendance_status === 'present' ? 'Present' : 'Absent'}
+              </Text>
+            </View>
+          ) : isCurrentUser ? (
+            <View style={styles.markButtonsContainer}>
+              <TouchableOpacity 
+                style={[styles.markButton, styles.presentButton]}
+                onPress={() => markMyAttendance('present')}
+                disabled={markingAttendance}
+              >
+                <Check size={16} color="#FFFFFF" />
+                <Text style={styles.markButtonText}>Present</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.markButton, styles.absentButton]}
+                onPress={() => markMyAttendance('absent')}
+                disabled={markingAttendance}
+              >
+                <X size={16} color="#FFFFFF" />
+                <Text style={styles.markButtonText}>Absent</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.pendingTag}>
+              <Text style={styles.pendingText}>Pending</Text>
+            </View>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
+
+  const markMyAttendance = async (status: 'present' | 'absent') => {
+    if (!currentUserId || markingAttendance) return;
+    
+    try {
+      setMarkingAttendance(true);
+      
+      // Check if already marked
+      const { data: existingRecord } = await supabase
+        .from('attendance_records')
+        .select('id')
+        .eq('session_id', sessionId)
+        .eq('student_id', currentUserId)
+        .single();
+        
+      if (existingRecord) {
+        Alert.alert('Already Marked', 'You have already marked your attendance for this session.');
+        return;
+      }
+      
+      // Optimistically update the UI
+      setStudents(currentStudents => 
+        currentStudents.map(student => 
+          student.id === currentUserId 
+            ? { ...student, attendance_status: status } 
+            : student
+        )
+      );
+      
+      // Create attendance record
+      const { error: recordError } = await supabase
+        .from('attendance_records')
+        .insert({
+          session_id: sessionId,
+          student_id: currentUserId,
+          status: status,
+          marked_by: currentUserId, // Self-marked
+        });
+        
+      if (recordError) {
+        // Revert optimistic update if there was an error
+        setStudents(currentStudents => 
+          currentStudents.map(student => 
+            student.id === currentUserId 
+              ? { ...student, attendance_status: null } 
+              : student
+          )
+        );
+        throw recordError;
+      }
+      
+      Alert.alert('Success', `Your attendance has been marked as ${status}!`);
+      
+      // Force refresh to ensure data is up to date
+      fetchStudents();
+      
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      Alert.alert('Error', 'Failed to mark attendance. Please try again.');
+    } finally {
+      setMarkingAttendance(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -206,6 +343,14 @@ export default function SelfAttendanceSessionScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={["#1E40AF"]}
+            tintColor="#1E40AF"
+          />
+        }
       />
 
       <View style={styles.footer}>
@@ -233,6 +378,26 @@ export default function SelfAttendanceSessionScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Add these new styles
+  header: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    paddingTop: 60,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  rotating: {
+    opacity: 0.5,
+  },
+  // Keep your existing styles
   container: {
     flex: 1,
     backgroundColor: '#F3F4F6',
@@ -362,5 +527,28 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     padding: 20,
     textAlign: 'center',
+  },
+  markButtonsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  markButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    gap: 4,
+  },
+  presentButton: {
+    backgroundColor: '#059669',
+  },
+  absentButton: {
+    backgroundColor: '#DC2626',
+  },
+  markButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

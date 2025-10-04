@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image, Alert, Platform, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { Pencil } from 'lucide-react-native';
 
 interface Profile {
   name: string;
@@ -42,15 +44,93 @@ export default function EditProfileScreen() {
   };
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    });
+    try {
+      // Request permissions first
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'We need access to your photos to upload an image.');
+        return;
+      }
+  
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+  
+      if (!result.canceled && profile) {
+        const imageUrl = await uploadProfileImage(result.assets[0].uri);
+        setProfile({ ...profile, avatar_url: imageUrl });
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to upload profile image. Please try again.');
+    }
+  };
 
-    if (!result.canceled && profile) {
-      setProfile({ ...profile, avatar_url: result.assets[0].uri });
+  const uploadProfileImage = async (uri: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+  
+      // Generate a unique file name
+      const fileExt = uri.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+  
+      // For iOS, handle file:// protocol
+      const fileUri = Platform.OS === 'ios' ? uri.replace('file://', '') : uri;
+  
+      // Read the file
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist');
+      }
+  
+      // Create form data
+      const formData = new FormData();
+      formData.append('file', {
+        uri: fileUri,
+        name: fileName,
+        type: `image/${fileExt}`
+      } as any);
+  
+      // Delete old profile image if exists
+      if (profile?.avatar_url) {
+        const oldPath = profile.avatar_url.split('/').slice(-2).join('/');
+        await supabase.storage
+          .from('profile_images')
+          .remove([oldPath]);
+      }
+  
+      // Upload to Supabase storage
+      const { data, error: uploadError } = await supabase.storage
+        .from('profile_images')
+        .upload(filePath, formData, {
+          contentType: `image/${fileExt}`,
+          upsert: true
+        });
+  
+      if (uploadError) throw uploadError;
+  
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile_images')
+        .getPublicUrl(filePath);
+  
+      // Update profile with new avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: filePath })
+        .eq('user_id', user.id);
+  
+      if (updateError) throw updateError;
+  
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading profile image:', error);
+      throw error;
     }
   };
 
@@ -93,29 +173,36 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.header}>
-        <Text style={styles.title}>Edit Profile</Text>
-        {error && <Text style={styles.error}>{error}</Text>}
+        <TouchableOpacity style={styles.avatarContainer} onPress={pickImage}>
+          <Image
+            source={{
+              uri: profile?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'
+            }}
+            style={styles.avatar}
+          />
+          <View style={styles.editIconContainer}>
+            <Pencil size={16} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Edit Profile</Text>
+        <Text style={styles.headerSubtitle}>Update your personal information</Text>
       </View>
 
-      <TouchableOpacity style={styles.avatarContainer} onPress={pickImage}>
-        <Image
-          source={{
-            uri: profile.avatar_url || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80',
-          }}
-          style={styles.avatar}
-        />
-        <Text style={styles.changePhotoText}>Change Photo</Text>
-      </TouchableOpacity>
-
-      <View style={styles.form}>
+      <View style={styles.formContainer}>
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Name</Text>
+          <Text style={styles.label}>Full Name</Text>
           <TextInput
             style={styles.input}
-            value={profile.name}
-            onChangeText={(text) => setProfile({ ...profile, name: text })}
+            value={profile?.name}
+            onChangeText={(text) => setProfile(prev => ({ ...prev!, name: text }))}
+            placeholder="Enter your full name"
+            placeholderTextColor="#9CA3AF"
           />
         </View>
 
@@ -123,8 +210,10 @@ export default function EditProfileScreen() {
           <Text style={styles.label}>Institute Name</Text>
           <TextInput
             style={styles.input}
-            value={profile.institute_name}
-            onChangeText={(text) => setProfile({ ...profile, institute_name: text })}
+            value={profile?.institute_name}
+            onChangeText={(text) => setProfile(prev => ({ ...prev!, institute_name: text }))}
+            placeholder="Enter your institute name"
+            placeholderTextColor="#9CA3AF"
           />
         </View>
 
@@ -132,19 +221,23 @@ export default function EditProfileScreen() {
           <Text style={styles.label}>Department</Text>
           <TextInput
             style={styles.input}
-            value={profile.department}
-            onChangeText={(text) => setProfile({ ...profile, department: text })}
+            value={profile?.department}
+            onChangeText={(text) => setProfile(prev => ({ ...prev!, department: text }))}
+            placeholder="Enter your department"
+            placeholderTextColor="#9CA3AF"
           />
         </View>
 
-        {profile.role === 'student' && (
+        {profile?.role === 'student' && (
           <>
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Roll Number</Text>
               <TextInput
                 style={styles.input}
-                value={profile.roll_number}
-                onChangeText={(text) => setProfile({ ...profile, roll_number: text })}
+                value={profile?.roll_number}
+                onChangeText={(text) => setProfile(prev => ({ ...prev!, roll_number: text }))}
+                placeholder="Enter your roll number"
+                placeholderTextColor="#9CA3AF"
               />
             </View>
 
@@ -152,23 +245,34 @@ export default function EditProfileScreen() {
               <Text style={styles.label}>Current Semester</Text>
               <TextInput
                 style={styles.input}
-                value={profile.current_semester}
-                onChangeText={(text) => setProfile({ ...profile, current_semester: text })}
+                value={profile?.current_semester}
+                onChangeText={(text) => setProfile(prev => ({ ...prev!, current_semester: text }))}
+                placeholder="Enter your current semester"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
               />
             </View>
           </>
         )}
-
-        <TouchableOpacity
-          style={[styles.saveButton, loading && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={loading}
-        >
-          <Text style={styles.saveButtonText}>
-            {loading ? 'Saving...' : 'Save Changes'}
-          </Text>
-        </TouchableOpacity>
       </View>
+
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[styles.saveButton, loading && styles.saveButtonDisabled]}
+        onPress={handleSave}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Text style={styles.saveButtonText}>Save Changes</Text>
+        )}
+      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -176,71 +280,103 @@ export default function EditProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
+  },
+  contentContainer: {
+    padding: 20,
+    paddingTop: 40,
   },
   header: {
-    padding: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  error: {
-    marginTop: 8,
-    color: '#DC2626',
-    fontSize: 14,
+    alignItems: 'center',
+    marginBottom: 32,
   },
   avatarContainer: {
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    position: 'relative',
+    marginBottom: 16,
   },
   avatar: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    marginBottom: 12,
+    backgroundColor: '#E5E7EB',
+    borderWidth: 4,
+    borderColor: '#FFFFFF',
   },
-  changePhotoText: {
-    color: '#1E40AF',
+  editIconContainer: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#1E40AF',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  headerSubtitle: {
     fontSize: 16,
-    fontWeight: '600',
+    color: '#6B7280',
   },
-  form: {
+  formContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 15,
+    elevation: 2,
   },
   inputGroup: {
     marginBottom: 20,
   },
   label: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#374151',
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    color: '#1F2937',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  errorContainer: {
+    backgroundColor: '#FEE2E2',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 20,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
   },
   saveButton: {
     backgroundColor: '#1E40AF',
+    borderRadius: 12,
     padding: 16,
-    borderRadius: 8,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 32,
+    shadowColor: '#1E40AF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   saveButtonDisabled: {
-    opacity: 0.7,
+    backgroundColor: '#93C5FD',
   },
   saveButtonText: {
     color: '#FFFFFF',

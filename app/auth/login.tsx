@@ -100,7 +100,7 @@ export default function Login() {
             resizeMode="contain"
           /> */}
           <Text style={styles.title}>UniLink</Text>
-          <Text style={styles.subtitle}>Connect • Learn • Grow</Text>
+          <Text style={styles.subtitle}>Unified Academic and Social Platform</Text>
         </View>
 
         <View style={styles.formContainer}>

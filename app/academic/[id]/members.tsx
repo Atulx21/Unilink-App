@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, TextInput, Alert } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, Users, UserPlus, Search, X, AlertCircle, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Users, UserPlus, Search, X, AlertCircle } from 'lucide-react-native';
 
 interface Member {
   id: string;
@@ -13,7 +13,7 @@ interface Member {
   };
 }
 
-export default function MembersScreen() {
+export default function AcademicMembersScreen() {
   const { id } = useLocalSearchParams();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,31 +109,16 @@ export default function MembersScreen() {
     }
   };
 
-  const filteredMembers = members.filter(member => {
-    if (!searchQuery.trim()) return true;
-    
-    const searchLower = searchQuery.toLowerCase().trim();
-    return (
-      (member.profile?.name && member.profile.name.toLowerCase().includes(searchLower)) ||
-      (member.profile?.roll_number && member.profile.roll_number.toLowerCase().includes(searchLower))
-    );
-  });
-
-  const handleSearch = (text: string) => {
-    setSearchQuery(text);
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchMembers();
   };
 
   const clearSearch = () => {
     setSearchQuery('');
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchMembers();
-  };
-
-  // Add handleRemoveMember function after other handlers
-  const handleRemoveMember = async (memberId: string) => {
+  const handleRemoveMember = (memberId: string) => {
     if (!isOwner) return;
     
     Alert.alert(
@@ -169,45 +154,47 @@ export default function MembersScreen() {
               
               Alert.alert('Success', 'Member removed successfully');
             } catch (error) {
-              Alert.alert('Error', 'Failed to remove member');
+              Alert.alert('Error', error.message || 'Failed to remove member');
             }
           }
         }
       ]
     );
   };
-  
-  // Update the renderMember function
+
+  const filteredMembers = members.filter(member => {
+    const name = member.profile.name.toLowerCase();
+    const rollNumber = member.profile.roll_number?.toLowerCase() || '';
+    const query = searchQuery.toLowerCase();
+    
+    return name.includes(query) || rollNumber.includes(query);
+  });
+
   const renderMember = ({ item }: { item: Member }) => (
     <View style={styles.memberCard}>
       <View style={styles.memberInfo}>
-        <Text style={styles.memberName}>{item.profile?.name || 'Unknown'}</Text>
-        {item.profile?.roll_number && (
-          <Text style={styles.rollNumber}>Roll No: {item.profile.roll_number}</Text>
-        )}
+        <Text style={styles.memberName}>{item.profile.name}</Text>
+        <View style={styles.memberDetails}>
+          <Text style={styles.memberRole}>
+            {item.profile.role === 'teacher' ? 'Teacher' : 'Student'}
+          </Text>
+          {item.profile.roll_number && (
+            <Text style={styles.rollNumber}>Roll No: {item.profile.roll_number}</Text>
+          )}
+        </View>
       </View>
-      <View style={[
-        styles.roleTagContainer,
-        item.profile?.role === 'teacher' ? styles.teacherTagContainer : styles.studentTagContainer
-      ]}>
-        <Text style={[
-          styles.roleTag,
-          item.profile?.role === 'teacher' ? styles.teacherTag : styles.studentTag
-        ]}>
-          {item.profile?.role || 'unknown'}
-        </Text>
-      </View>
+      
       {isOwner && (
         <TouchableOpacity 
           style={styles.removeButton}
           onPress={() => handleRemoveMember(item.id)}
         >
-          <Trash2 size={18} color="#EF4444" />
+          <X size={18} color="#DC2626" />
         </TouchableOpacity>
       )}
     </View>
   );
-  
+
   if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
@@ -218,6 +205,8 @@ export default function MembersScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
+      
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
@@ -225,15 +214,50 @@ export default function MembersScreen() {
         >
           <ArrowLeft size={24} color="#1F2937" />
         </TouchableOpacity>
-        <Text style={styles.title}>Members</Text>
+        <View style={styles.headerTextContainer}>
+          <Text style={styles.headerTitle}>Members</Text>
+        </View>
         {isOwner && (
           <TouchableOpacity 
             style={styles.addButton}
-            onPress={() => router.push(`/attendance/${id}/add-members`)}
+            onPress={() => router.push(`/academic/${id}/add-members`)}
           >
-            <UserPlus size={24} color="#FFFFFF" />
+            <UserPlus size={24} color="#1E40AF" />
           </TouchableOpacity>
         )}
+      </View>
+
+      <View style={styles.statsContainer}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{stats.teachers}</Text>
+          <Text style={styles.statLabel}>Teachers</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{stats.students}</Text>
+          <Text style={styles.statLabel}>Students</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{stats.teachers + stats.students}</Text>
+          <Text style={styles.statLabel}>Total</Text>
+        </View>
+      </View>
+
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputContainer}>
+          <Search size={20} color="#6B7280" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name or roll number"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#9CA3AF"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
+              <X size={18} color="#6B7280" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {error ? (
@@ -248,76 +272,24 @@ export default function MembersScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <>
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.students}</Text>
-              <Text style={styles.statLabel}>Students</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.teachers}</Text>
-              <Text style={styles.statLabel}>Teachers</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{members.length}</Text>
-              <Text style={styles.statLabel}>Total</Text>
-            </View>
-          </View>
-
-          {members.length > 0 ? (
-            <FlatList
-              data={filteredMembers}
-              renderItem={renderMember}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.list}
-              showsVerticalScrollIndicator={false}
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              ListHeaderComponent={
-                <View style={styles.searchContainer}>
-                  <Search size={20} color="#6B7280" style={styles.searchIcon} />
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search by name or roll number"
-                    placeholderTextColor="#9CA3AF"
-                    value={searchQuery}
-                    onChangeText={handleSearch}
-                  />
-                  {searchQuery.length > 0 && (
-                    <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-                      <X size={18} color="#6B7280" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              }
-              ListEmptyComponent={
-                searchQuery.length > 0 ? (
-                  <View style={styles.noResultsContainer}>
-                    <Text style={styles.noResultsText}>No members found matching "{searchQuery}"</Text>
-                    <TouchableOpacity onPress={clearSearch} style={styles.clearSearchButton}>
-                      <Text style={styles.clearSearchText}>Clear search</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : null
-              }
-            />
-          ) : (
+        <FlatList
+          data={filteredMembers}
+          renderItem={renderMember}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.listContent}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Users size={48} color="#9CA3AF" />
-              <Text style={styles.emptyText}>No members found</Text>
-              {isOwner && (
-                <TouchableOpacity
-                  style={styles.addFirstButton}
-                  onPress={() => router.push(`/attendance/${id}/add-members`)}
-                >
-                  <Text style={styles.addFirstButtonText}>Add your first member</Text>
-                </TouchableOpacity>
-              )}
+              <Users size={40} color="#9CA3AF" />
+              <Text style={styles.emptyText}>
+                {searchQuery.length > 0 
+                  ? 'No members match your search' 
+                  : 'No members in this group yet'}
+              </Text>
             </View>
-          )}
-        </>
+          }
+        />
       )}
     </View>
   );
@@ -328,11 +300,145 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F3F4F6',
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingTop: 60,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    elevation: 2,
+  },
+  backButton: {
+    marginRight: 16,
+    padding: 8,
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  addButton: {
+    padding: 8,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 16,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1E40AF',
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#4B5563',
+    marginTop: 4,
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 48,
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  clearButton: {
+    padding: 8,
+  },
+  listContent: {
+    padding: 16,
+    paddingTop: 0,
+  },
+  memberCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  memberDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  memberRole: {
+    fontSize: 14,
+    color: '#4B5563',
     backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginRight: 8,
+  },
+  rollNumber: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  removeButton: {
+    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 16,
   },
   errorContainer: {
     flex: 1,
@@ -344,8 +450,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#DC2626',
     textAlign: 'center',
-    marginTop: 12,
-    marginBottom: 20,
+    marginVertical: 16,
   },
   retryButton: {
     backgroundColor: '#1E40AF',
@@ -354,214 +459,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 20,
-    paddingTop: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    elevation: 2,
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 12,
-  },
-  title: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    textAlign: 'left',
-  },
-  addButton: {
-    backgroundColor: '#1E40AF',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 2,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  statDivider: {
-    width: 1,
-    height: '80%',
-    backgroundColor: '#E5E7EB',
-    marginHorizontal: 8,
-  },
-  list: {
-    padding: 16,
-    paddingTop: 8,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
-  },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    height: 36,
-    fontSize: 16,
-    color: '#1F2937',
-    padding: 0,
-    fontWeight: '400',
-  },
-  clearButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#F3F4F6',
-  },
-  noResultsContainer: {
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  noResultsText: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  clearSearchButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 6,
-  },
-  clearSearchText: {
-    color: '#4B5563',
-    fontWeight: '500',
-    fontSize: 14,
-  },
-  memberCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  memberInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  memberName: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 4,
-    letterSpacing: 0.3,
-  },
-  rollNumber: {
-    fontSize: 14,
-    color: '#6B7280',
-    letterSpacing: 0.2,
-  },
-  roleTagContainer: {
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  teacherTagContainer: {
-    backgroundColor: '#EFF6FF',
-  },
-  studentTagContainer: {
-    backgroundColor: '#F0FDF4',
-  },
-  roleTag: {
-    fontSize: 13,
-    fontWeight: '500',
-    textTransform: 'capitalize',
-  },
-  teacherTag: {
-    color: '#1E40AF',
-  },
-  studentTag: {
-    color: '#059669',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginTop: 12,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  addFirstButton: {
-    backgroundColor: '#1E40AF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    elevation: 2,
-  },
-  addFirstButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',

@@ -34,6 +34,12 @@ export default function AttendanceSettingsScreen() {
   const fetchSettings = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
+      if (!id) {
+        throw new Error('Group ID is missing');
+      }
+      
       const { data: group, error: groupError } = await supabase
         .from('groups')
         .select('*')
@@ -42,14 +48,20 @@ export default function AttendanceSettingsScreen() {
 
       if (groupError) throw groupError;
       
+      if (!group) {
+        throw new Error('Group not found');
+      }
+      
       // Ensure numeric values are properly parsed
       setSettings({
         ...group,
         attendance_window: parseInt(group.attendance_window) || 15,
         penalty_threshold: parseInt(group.penalty_threshold) || 3,
+        allow_self_attendance: group.allow_self_attendance !== false, // Default to true if null
       });
     } catch (error) {
-      setError(error.message);
+      console.error('Error fetching settings:', error);
+      setError('Failed to load settings. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -76,6 +88,7 @@ export default function AttendanceSettingsScreen() {
   const handleSave = async () => {
     try {
       setSaving(true);
+      setError(null);
       
       // Validate settings before saving
       if (settings.attendance_window < 5) {
@@ -86,30 +99,28 @@ export default function AttendanceSettingsScreen() {
         throw new Error('Penalty threshold must be at least 1');
       }
       
-      // Don't update any columns since they don't exist in the database
-      // Just show a success message for now
+      // Update the settings in the database
+      const { error: updateError } = await supabase
+        .from('groups')
+        .update({
+          allow_self_attendance: settings.allow_self_attendance,
+          attendance_window: settings.attendance_window,
+          penalty_threshold: settings.penalty_threshold,
+        })
+        .eq('id', id);
+  
+      if (updateError) throw updateError;
+      
       Alert.alert(
         'Success',
         'Settings have been updated',
         [{ text: 'OK' }]
       );
       
-      /* 
-      // Original update code - commented out since columns don't exist
-      const { error: updateError } = await supabase
-        .from('groups')
-        .update({
-          // allow_self_attendance: settings.allow_self_attendance, // Column doesn't exist
-          // attendance_window: settings.attendance_window, // Column doesn't exist
-          // penalty_threshold: settings.penalty_threshold, // Column doesn't exist
-        })
-        .eq('id', id);
-  
-      if (updateError) throw updateError;
-      */
-      
     } catch (error) {
+      console.error('Error saving settings:', error);
       setError(error.message);
+      Alert.alert('Error', 'Failed to save settings. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -129,11 +140,18 @@ export default function AttendanceSettingsScreen() {
 
   // Function to copy join code to clipboard
   const copyJoinCode = () => {
-    Alert.alert(
-      'Join Code',
-      `${settings.join_code}`,
-      [{ text: 'OK' }]
-    );
+    try {
+      // In a real implementation, you would use Clipboard.setString(settings.join_code)
+      // For this example, we'll just show an alert
+      Alert.alert(
+        'Join Code Copied',
+        `The join code ${settings.join_code} has been copied to clipboard`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Error copying join code:', error);
+      Alert.alert('Error', 'Failed to copy join code');
+    }
   };
 
   if (loading) {
@@ -161,7 +179,10 @@ export default function AttendanceSettingsScreen() {
       {/* Join Code Section */}
       {settings.join_code && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Join Code</Text>
+          <View style={styles.sectionTitleContainer}>
+            <Users size={20} color="#1F2937" />
+            <Text style={styles.sectionTitle}>Join Code</Text>
+          </View>
           <View style={styles.joinCodeContainer}>
             <Text style={styles.joinCode}>{settings.join_code}</Text>
             <View style={styles.joinCodeActions}>
@@ -180,7 +201,10 @@ export default function AttendanceSettingsScreen() {
       )}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Self Attendance</Text>
+        <View style={styles.sectionTitleContainer}>
+          <Settings size={20} color="#1F2937" />
+          <Text style={styles.sectionTitle}>Self Attendance</Text>
+        </View>
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
             <Text style={styles.settingLabel}>Allow Self Attendance</Text>

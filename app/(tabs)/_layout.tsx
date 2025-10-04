@@ -52,6 +52,15 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
+      {/* Hide the edit screen from tab bar */}
+      <Tabs.Screen
+        name="profile/edit"
+        options={{
+          href: null, // This prevents the route from being accessible via the tab bar
+          headerShown: true, // Show header for the edit screen
+          title: 'Edit Profile',
+        }}
+      />
     </Tabs>
   );
 }

@@ -33,10 +33,32 @@ export default function SelfAttendanceSummaryScreen() {
     type: string;
     groupName: string;
   } | null>(null);
+  const [isTeacher, setIsTeacher] = useState(false);
 
   useEffect(() => {
     loadAttendanceData();
+    checkUserRole();
   }, []);
+
+  const checkUserRole = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get the user's profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, role')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profile && profile.role === 'teacher') {
+        setIsTeacher(true);
+      }
+    } catch (error) {
+      console.error('Error checking user role:', error);
+    }
+  };
 
   const loadAttendanceData = async () => {
     try {
@@ -94,6 +116,17 @@ export default function SelfAttendanceSummaryScreen() {
 
           groupedStats[record.status].push(student);
         });
+
+        // Sort each category by roll number
+        const sortByRollNumber = (a: Student, b: Student) => {
+          const rollA = a.roll_number || 'N/A';
+          const rollB = b.roll_number || 'N/A';
+          return rollA.localeCompare(rollB, undefined, { numeric: true });
+        };
+
+        groupedStats.present.sort(sortByRollNumber);
+        groupedStats.absent.sort(sortByRollNumber);
+        groupedStats.penalty.sort(sortByRollNumber);
 
         setStats(groupedStats);
       }
@@ -162,11 +195,50 @@ export default function SelfAttendanceSummaryScreen() {
     }
   };
 
+  // Add new function to change status from absent to present
+  // Update the markAsPresent function to show a confirmation dialog
+  const markAsPresent = async (studentId: string, studentName: string) => {
+    // Show confirmation dialog first
+    Alert.alert(
+      'Confirm Status Change',
+      `Are you sure you want to mark ${studentName} as present?`,
+      [
+        { 
+          text: 'Cancel', 
+          style: 'cancel' 
+        },
+        { 
+          text: 'Mark Present', 
+          onPress: async () => {
+            try {
+              // Update the student's attendance status to present
+              const { error: updateError } = await supabase
+                .from('attendance_records')
+                .update({ status: 'present' })
+                .eq('session_id', sessionId)
+                .eq('student_id', studentId);
+                
+              if (updateError) throw updateError;
+              
+              // Refresh the data
+              await loadAttendanceData();
+              
+              Alert.alert('Success', `${studentName} has been marked as present`);
+            } catch (error) {
+              console.error('Error marking present:', error);
+              Alert.alert('Error', 'Failed to mark student as present');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderStudent = ({ item }: { item: Student }) => (
     <View style={styles.studentCard}>
       <View style={styles.studentInfo}>
-        <Text style={styles.studentName}>{item.name}</Text>
-        <Text style={styles.rollNumber}>Roll No: {item.roll_number}</Text>
+        <Text style={styles.studentName}>{item.profile?.name || item.name}</Text>
+        <Text style={styles.rollNumber}>Roll No: {item.profile?.roll_number || item.roll_number}</Text>
       </View>
       <View style={styles.statusIndicator}>
         {item.attendance_status === 'present' && (
@@ -175,18 +247,32 @@ export default function SelfAttendanceSummaryScreen() {
               <Check size={16} color="#FFFFFF" />
               <Text style={styles.statusText}>Present</Text>
             </View>
-            <TouchableOpacity 
-              style={styles.penaltyButton}
-              onPress={() => markAsPenalty(item.id)}
-            >
-              <Text style={styles.penaltyButtonText}>Mark Penalty</Text>
-            </TouchableOpacity>
+            {isTeacher && (
+              <TouchableOpacity 
+                style={styles.penaltyButton}
+                onPress={() => markAsPenalty(item.id)}
+              >
+                <AlertTriangle size={14} color="#D97706" />
+                <Text style={styles.penaltyButtonText}>Mark Penalty</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         {item.attendance_status === 'absent' && (
-          <View style={[styles.statusBadge, styles.absentBadge]}>
-            <X size={16} color="#FFFFFF" />
-            <Text style={styles.statusText}>Absent</Text>
+          <View style={styles.actionContainer}>
+            <View style={[styles.statusBadge, styles.absentBadge]}>
+              <X size={16} color="#FFFFFF" />
+              <Text style={styles.statusText}>Absent</Text>
+            </View>
+            {isTeacher && (
+              <TouchableOpacity 
+                style={styles.presentButton}
+                onPress={() => markAsPresent(item.id, item.name)}
+              >
+                <Check size={14} color="#059669" />
+                <Text style={styles.presentButtonText}>Mark Present</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         {item.attendance_status === 'penalty' && (
@@ -568,11 +654,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#D97706',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
   },
   penaltyButtonText: {
     color: '#D97706',
     fontSize: 12,
     fontWeight: '600',
+    marginLeft: 4,
   },
   emptyState: {
     flex: 1,
