@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Check, X } from 'lucide-react-native';
@@ -42,11 +42,18 @@ export default function ManualAttendanceScreen() {
       const formattedStudents = members.map(member => ({
         id: member.profiles.id,
         name: member.profiles.name,
-        roll_number: member.profiles.roll_number,
+        roll_number: member.profiles.roll_number || 'N/A',
         attendance_status: null,
       }));
 
-      setStudents(formattedStudents);
+      // Sort students by roll number
+      const sortedStudents = formattedStudents.sort((a, b) => {
+        const rollA = a.roll_number || 'N/A';
+        const rollB = b.roll_number || 'N/A';
+        return rollA.localeCompare(rollB, undefined, { numeric: true });
+      });
+
+      setStudents(sortedStudents);
     } catch (error) {
       setError(error.message);
     } finally {
@@ -66,6 +73,13 @@ export default function ManualAttendanceScreen() {
 
   const handleSubmit = async () => {
     try {
+      // Check if any students have been marked
+      const markedStudents = students.filter(student => student.attendance_status !== null);
+      if (markedStudents.length === 0) {
+        Alert.alert('Error', 'Please mark at least one student before submitting.');
+        return;
+      }
+
       setSubmitting(true);
       
       // Create attendance session
@@ -74,40 +88,51 @@ export default function ManualAttendanceScreen() {
         .insert({
           group_id: id,
           type: 'manual',
-          status: 'active', // Changed from 'completed' to 'active'
+          status: 'active',
+          date: new Date().toISOString(),
         })
         .select()
         .single();
-  
+
       if (sessionError) throw sessionError;
-  
+
       // Get marker's profile ID
       const { data: { user } } = await supabase.auth.getUser();
-      const { data: profile } = await supabase
+      if (!user) throw new Error('User not authenticated');
+      
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('id')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .single();
-  
-      // Create attendance records
+        
+      if (profileError) throw profileError;
+
+      // Create attendance records - FIX: The filter condition was incorrect
       const records = students
-        .filter(student => student.attendance_status)
+        .filter(student => student.attendance_status !== null) // Changed from student.attendance_status to student.attendance_status !== null
         .map(student => ({
           session_id: session.id,
           student_id: student.id,
           status: student.attendance_status,
           marked_by: profile.id,
+          marked_at: new Date().toISOString(),
         }));
-  
+
+      if (records.length === 0) {
+        throw new Error('No attendance records to submit. Please mark at least one student.');
+      }
+
       const { error: recordsError } = await supabase
         .from('attendance_records')
         .insert(records);
-  
+
       if (recordsError) throw recordsError;
-  
-      // Navigate to summary page instead of going back to attendance list
+
+      // Navigate to summary page
       router.push(`/attendance/${id}/summary?sessionId=${session.id}`);
     } catch (error) {
+      console.error('Submit error:', error);
       setError(error.message);
       Alert.alert('Error', error.message);
     } finally {
