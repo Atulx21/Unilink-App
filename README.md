@@ -95,11 +95,18 @@ Before running this project, make sure you have the following installed:
 
 3. **Environment Setup**
    
-   Create a `.env` file in the root directory and add your Supabase configuration:
+   Copy the `.env.example` file to `.env` and update it with your Supabase configuration:
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Then edit the `.env` file with your actual values:
    ```env
    EXPO_PUBLIC_SUPABASE_URL=your_supabase_project_url
    EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    ```
+   
+   **Security Note**: Never commit the `.env` file to version control. It contains sensitive API keys.
 
 ## ⚙️ Supabase Setup
 
