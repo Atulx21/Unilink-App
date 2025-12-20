@@ -185,28 +185,6 @@ unilink/
 └── tsconfig.json          # TypeScript configuration
 ```
 
-## 🔧 Development Scripts
-
-- `npm run dev` - Start development server
-- `npm run build:web` - Build for web deployment
-- `npm run lint` - Run ESLint for code quality
-
-## 🤝 Contributing
-
-We welcome contributions! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Commit your changes: `git commit -m 'Add some feature'`
-4. Push to the branch: `git push origin feature/your-feature-name`
-5. Open a Pull Request
-
-### Code Style
-- Use TypeScript for all new code
-- Follow the existing code style and naming conventions
-- Run `npm run lint` before committing
-- Add tests for new features
-
 ## 📝 API Documentation
 
 The application uses Supabase as its backend. Key API endpoints include:
@@ -216,8 +194,7 @@ The application uses Supabase as its backend. Key API endpoints include:
 - **Attendance**: Session creation, marking, and reporting
 - **Materials**: File upload and management
 - **Chat**: Real-time messaging within groups
-
-For detailed API documentation, refer to the Supabase dashboard or the SQL files in `supabase/`.
+ 
 
 ## 🐛 Troubleshooting
 
@@ -241,32 +218,6 @@ For detailed API documentation, refer to the Supabase dashboard or the SQL files
    - Ensure Android SDK is properly configured
    - Check Android emulator settings
 
-### Environment Variables
-Make sure all required environment variables are set in your `.env` file. Missing variables will cause authentication and database connection errors.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👥 Authors
-
-- **ATUL PARMAR** - *Initial work* - [GitHub](https://github.com/Atulx21)
-
-## 🙏 Acknowledgments
-
-- Expo team for the amazing development platform
-- Supabase team for the powerful backend-as-a-service
-- React Native community for the excellent framework
-- All contributors and users of UniLink
-
-## 📞 Support
-
-If you have any questions or need help:
-
-- Open an issue on GitHub
-- Check the [Expo documentation](https://docs.expo.dev/)
-- Visit the [Supabase documentation](https://supabase.com/docs)
-
----
+ 
 
 **Happy coding with UniLink! 🎓📱**
